@@ -3,9 +3,12 @@ package com.seatlock.service;
 import com.seatlock.dto.CreateVenueRequest;
 import com.seatlock.dto.VenueResponse;
 import com.seatlock.exception.NotFoundException;
+import com.seatlock.model.MapZone;
 import com.seatlock.model.Venue;
+import com.seatlock.model.VenueType;
 import com.seatlock.repository.VenueRepository;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,9 +23,13 @@ public class VenueService {
 
     @Transactional
     public VenueResponse createVenue(CreateVenueRequest request) {
-        Venue venue = new Venue(request.name(), request.city());
+        Venue venue = new Venue(request.name(), request.city(),
+                Objects.requireNonNullElse(request.type(), VenueType.ARENA),
+                Objects.requireNonNullElse(request.stageZone(), MapZone.NORTH),
+                request.stageLabel() == null || request.stageLabel().isBlank() ? "STAGE" : request.stageLabel().strip());
         for (CreateVenueRequest.SectionRequest section : request.sections()) {
-            venue.addSection(section.name(), section.rows(), section.seatsPerRow(), section.priceCents());
+            MapZone zone = Objects.requireNonNullElse(section.zone(), venue.getStageZone().facing());
+            venue.addSection(section.name(), section.rows(), section.seatsPerRow(), section.priceCents(), zone);
         }
         return VenueResponse.from(venueRepository.save(venue));
     }

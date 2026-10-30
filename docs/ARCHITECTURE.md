@@ -7,8 +7,11 @@ endpoint details see [API.md](API.md); for setup see the [README](../README.md).
 
 ```mermaid
 flowchart LR
+    browser([Browser]) -- page, JS, CSS --> web
+    browser --> limiter
     client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
+        web[static web client<br/>index.html, app.js]
         limiter[RateLimitingFilter<br/>5 checkout req/s per IP] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
         service --> repository[repository<br/>queries and row locks]
@@ -28,6 +31,10 @@ flowchart LR
     limiter -. over limit .-> r429([429 Too Many Requests])
     repository --> db[(H2 or MySQL)]
 ```
+
+The web client in `src/main/resources/static` is plain HTML, CSS and JavaScript served by
+Spring Boot at `/`. It has no server-side logic: it calls the same public REST API as any other
+client, so every seat it shows and every hold it places goes through the same checks.
 
 A request passes the rate limiter (checkout paths only), then a thin controller, then a service
 that owns the transaction. There are two ways to place a hold:
@@ -53,6 +60,17 @@ that owns the transaction. There are two ways to place a hold:
 
 ```mermaid
 erDiagram
+    VENUE {
+        long id PK
+        string type "ARENA, STADIUM, OPERA_HOUSE, ..."
+        string stage_zone "NORTH, CENTER, WEST, ..."
+        string stage_label
+    }
+    SECTION {
+        long id PK
+        string zone "map zone the section sits in"
+        long price_cents
+    }
     VENUE ||--o{ SECTION : has
     SECTION ||--o{ SEAT : has
     VENUE ||--o{ EVENT : hosts
@@ -92,6 +110,10 @@ erDiagram
 ```
 
 - **Venue → Section → Seat** is the physical layout. It is shared by every event at the venue.
+  The venue's `stage_zone` and each section's `zone` place them on a 3×3 grid (north at the top),
+  which is enough to describe an end stage, a stage in the round, a thrust, side or corner stage,
+  a stadium with pitch seating, and opera boxes along the walls. Layout is display data only: it
+  plays no part in holds or locking.
 - **EventSeat** is the state of one seat for one event. This is the row that buyers compete for,
   and the only row that gets locked when seats change hands.
 - **Hold** is a time-limited claim on a set of event seats. It stores the seat ids it covers.
@@ -257,6 +279,8 @@ Profiles: default uses in-memory H2 in MySQL mode; `mysql` points at MySQL 8 (se
 
 ## Testing strategy
 
+Every scenario, with the test that checks it, is listed in [TESTING.md](TESTING.md).
+
 | Kind | Where | How |
 |---|---|---|
 | Entity rules | `src/test/.../model` | Plain unit tests, no Spring |
@@ -264,6 +288,8 @@ Profiles: default uses in-memory H2 in MySQL mode; `mysql` points at MySQL 8 (se
 | End-to-end flow | `controller/ReservationFlowIntegrationTest` | Full app over MockMvc |
 | Services and races | `src/test/.../service` | Full context on H2, extending `support/IntegrationTest` |
 | Queued checkout | `service/QueuedCheckoutIntegrationTest` | Real embedded broker; a Mockito spy on `HoldService` injects failures to prove retries and the dead-letter path |
+| Venue layouts | `model/VenueLayoutTest`, `service/VenueLayoutIntegrationTest` | Default zones, the stage-zone rule, and layout reaching the seat map |
+| Web client | `controller/WebClientIntegrationTest` | Checks the page and its files are served; behaviour in the browser is checked by hand (see TESTING.md) |
 | Rate limiter | `ratelimit/RateLimitingFilterTest` | Plain unit test driving the filter with a `MutableClock`, so refills are exact |
 | Load | `load-test/locustfile.py` | Locust, 500 virtual fans over HTTP against a running app; not part of `./mvnw test` |
 

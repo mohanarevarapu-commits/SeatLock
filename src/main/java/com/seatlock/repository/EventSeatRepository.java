@@ -25,7 +25,7 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
      */
     @Query("""
             select new com.seatlock.repository.SeatMapRow(
-                es.id, sec.id, sec.name, sec.priceCents, s.rowLabel, s.number, es.status, es.heldUntil)
+                es.id, sec.id, sec.name, sec.zone, sec.priceCents, s.rowLabel, s.number, es.status, es.heldUntil)
             from EventSeat es
             join es.seat s
             join s.section sec

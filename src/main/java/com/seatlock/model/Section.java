@@ -3,6 +3,8 @@ package com.seatlock.model;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -34,6 +36,10 @@ public class Section {
     @Column(name = "price_cents", nullable = false)
     private long priceCents;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private MapZone zone;
+
     @OneToMany(mappedBy = "section", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<Seat> seats = new ArrayList<>();
@@ -41,10 +47,11 @@ public class Section {
     protected Section() {
     }
 
-    Section(Venue venue, String name, long priceCents) {
+    Section(Venue venue, String name, long priceCents, MapZone zone) {
         this.venue = venue;
         this.name = name;
         this.priceCents = priceCents;
+        this.zone = zone;
     }
 
     void addSeat(String rowLabel, int number) {
@@ -65,6 +72,10 @@ public class Section {
 
     public long getPriceCents() {
         return priceCents;
+    }
+
+    public MapZone getZone() {
+        return zone;
     }
 
     public List<Seat> getSeats() {

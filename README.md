@@ -14,6 +14,7 @@ only by an opaque `customerRef` token, never by personal data.
 - H2 (in-memory, MySQL mode) for development and tests; MySQL 8 for a real database
 - ActiveMQ Artemis (Spring JMS) for the queued checkout, embedded by default
 - springdoc-openapi for the OpenAPI spec and Swagger UI
+- Plain HTML, CSS and JavaScript for the web client (no build step, served by Spring Boot)
 - JUnit 5, AssertJ, Mockito, MockMvc
 - Locust (Python) for load testing
 - Maven (via the included `./mvnw` wrapper, so no local Maven install is needed)
@@ -22,11 +23,54 @@ only by an opaque `customerRef` token, never by personal data.
 
 ```bash
 ./mvnw clean test                                            # run all tests
-./mvnw spring-boot:run -Dspring-boot.run.profiles=demo       # run with a seeded demo venue
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo       # run with demo venues and shows
 ```
 
-The API listens on `http://localhost:8080`. The `demo` profile creates "Riverside Arena"
-(5,000 seats in 3 sections) and two upcoming events.
+Open [`http://localhost:8080`](http://localhost:8080) for the web client. The API is at
+`http://localhost:8080/api`.
+
+The `demo` profile seeds 12 fictional venues and 16 upcoming shows, each venue with its own stage
+position:
+
+| Venue | Type | Stage | Seats | Shows |
+|---|---|---|---|---|
+| Riverside Arena | Arena | End stage (north) | 5,000 | 2 |
+| Meridian Dome | Arena | In the round | 1,192 | 2 |
+| Harbourline Stadium | Stadium | Main stage at one end, seats on the pitch | 5,240 | 2 |
+| Oakmoor Cricket Ground | Ground | Pitch stage in the middle, stands all round | 2,000 | 1 |
+| Old Mill Fairground | Ground | Side stage (west) | 1,380 | 1 |
+| Royal Crescent Opera House | Opera house | End stage, boxes on both walls, three tiers | 1,140 | 2 |
+| Teatro Lumen | Opera house | End stage at the south | 720 | 1 |
+| Lantern Street Theatre | Theatre | Thrust stage, seats on three sides | 464 | 1 |
+| Lakeview Concert Hall | Concert hall | Orchestra in the middle, choir seats behind | 916 | 1 |
+| Sunset Bowl Amphitheatre | Amphitheatre | End stage, seats fanning out | 1,632 | 1 |
+| Grand Pearl Banquet Hall | Function hall | Stage and dance floor on the east wall | 392 | 1 |
+| The Velvet Room | Club | Corner stage | 290 | 1 |
+
+Riverside Arena is venue 1 and its two shows are events 1 and 2, which the load test uses.
+
+### Web client
+
+The page at `/` lets you buy tickets in a browser:
+
+- Pick a show (filter by venue type), then click seats on the live seat map (up to 8). The map
+  refreshes every 5 seconds, so seats others hold or buy change colour while you watch.
+- The map is drawn from the venue's layout: the stage sits where it really is (at one end, in the
+  middle, on a side or in a corner) and every section faces it, with row A nearest the stage.
+  Large venues are zoomed to fit; use **−**, **+** and **Fit** to zoom.
+- **Book now** opens the payment page and keeps the seats for 10 minutes (behind the scenes this
+  is a hold, so nobody else can take them while you pay). The page shows a countdown, the order
+  summary and **Pay**, which confirms the booking and shows its reference. Payment is a demo: no
+  money is taken and no card details are asked for.
+- **Cancel and go back**, or the browser's Back button, releases the seats at once. If the
+  countdown runs out, you are sent back to the seat map and the seats go back on sale.
+- **Join the queue instead** books through the queued checkout and opens the same payment page
+  once your turn comes.
+- **Find a booking** looks up a booking by reference.
+
+It is plain HTML, CSS and JavaScript in `src/main/resources/static`, with no build step, and uses
+only the public REST API. Each browser gets a random `customerRef` (kept in local storage), and
+reloading during payment returns to the payment page with the same countdown.
 
 ### Using MySQL instead of H2
 
@@ -43,7 +87,9 @@ Connection settings can be overridden with `SEATLOCK_DB_URL`, `SEATLOCK_DB_USER`
 While the app is running, interactive docs are at
 [`http://localhost:8080/swagger-ui.html`](http://localhost:8080/swagger-ui.html). See
 [docs/API.md](docs/API.md) for request and response examples, and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data model and locking design.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data model and locking design. Every test
+scenario (automated, manual and load) is listed in [docs/TESTING.md](docs/TESTING.md). What each
+version added and how it was tested is in [CHANGELOG.md](CHANGELOG.md).
 
 | Method | Path | Description |
 |---|---|---|
@@ -171,6 +217,7 @@ Performance notes:
 ## Project layout
 
 ```
+src/main/resources/static/  Web client: index.html, app.js, app.css
 src/main/java/com/seatlock
 ├── config/        Clock, OpenAPI, hold/queue/rate-limit settings, demo data seeder
 ├── controller/    REST endpoints
@@ -187,7 +234,7 @@ src/test/java/com/seatlock
 ├── ratelimit/     Rate limiter tests with a controllable clock
 ├── service/       Integration tests, including race tests and the queued checkout
 └── support/       Test base class and a controllable clock
-docs/              API reference and architecture guide
+docs/              API reference, architecture guide and test scenarios
 load-test/         Locust load test (500 virtual fans)
 ```
 

@@ -68,7 +68,7 @@ public class EventService {
 
     @Transactional(readOnly = true)
     public SeatMapResponse getSeatMap(Long eventId) {
-        findEvent(eventId);
+        Venue venue = findEvent(eventId).getVenue();
         Instant now = clock.instant();
 
         Map<Long, SeatMapRow> sectionInfo = new LinkedHashMap<>();
@@ -83,12 +83,13 @@ public class EventService {
         List<SectionMap> sections = bySection.entrySet().stream()
                 .map(e -> {
                     SeatMapRow info = sectionInfo.get(e.getKey());
-                    return new SectionMap(e.getKey(), info.sectionName(), info.priceCents(),
+                    return new SectionMap(e.getKey(), info.sectionName(), info.zone(), info.priceCents(),
                             countAvailable(e.getValue()), e.getValue());
                 })
                 .toList();
         int available = sections.stream().mapToInt(SectionMap::availableCount).sum();
-        return new SeatMapResponse(eventId, available, sections);
+        return new SeatMapResponse(eventId, venue.getType(), venue.getStageZone(), venue.getStageLabel(),
+                available, sections);
     }
 
     Event findEvent(Long id) {

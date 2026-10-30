@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SeatLock Tickets</title>
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="brand">
+        <span class="logo" aria-hidden="true">◆</span>
+        <span>SeatLock</span>
+    </div>
+    <nav class="links">
+        <a href="/swagger-ui.html" target="_blank" rel="noopener">API docs</a>
+    </nav>
+</header>
+
+<main class="page">
+    <div id="browse-view">
+        <section class="events" aria-label="Events">
+            <h1>Upcoming shows</h1>
+            <div id="event-list" class="event-list"><p class="muted">Loading events…</p></div>
+        </section>
+
+        <section id="event-view" class="event-view" hidden>
+            <div class="seat-panel">
+                <div class="event-heading">
+                    <div>
+                        <h2 id="event-name"></h2>
+                        <p id="event-meta" class="muted"></p>
+                    </div>
+                    <p id="available-count" class="pill"></p>
+                </div>
+                <ul class="legend" aria-label="Seat legend">
+                    <li><span class="seat available"></span>Available</li>
+                    <li><span class="seat selected"></span>Your selection</li>
+                    <li><span class="seat held"></span>Held by others</li>
+                    <li><span class="seat booked"></span>Sold</li>
+                </ul>
+                <div class="zoom" role="group" aria-label="Zoom the seat map">
+                    <button id="zoom-out" class="btn secondary small" type="button" aria-label="Zoom out">−</button>
+                    <span id="zoom-level" class="muted">100%</span>
+                    <button id="zoom-in" class="btn secondary small" type="button" aria-label="Zoom in">+</button>
+                    <button id="zoom-fit" class="btn secondary small" type="button">Fit</button>
+                </div>
+                <div id="seat-map" class="seat-map"></div>
+            </div>
+
+            <aside class="sidebar">
+                <div id="cart" class="card"></div>
+
+                <form id="lookup" class="card lookup">
+                    <h3>Find a booking</h3>
+                    <div class="lookup-row">
+                        <input id="lookup-ref" placeholder="SL-7KQ2MX" autocomplete="off" required
+                               pattern="[A-Za-z0-9-]+" aria-label="Booking reference">
+                        <button class="btn secondary" type="submit">Look up</button>
+                    </div>
+                    <div id="lookup-result"></div>
+                </form>
+            </aside>
+        </section>
+    </div>
+
+    <section id="checkout-view" aria-label="Checkout" hidden></section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

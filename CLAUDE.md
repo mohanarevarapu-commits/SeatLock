@@ -10,6 +10,8 @@ API and docs/ARCHITECTURE.md for the concurrency design.
 - Spring Boot 3.5 (Web, Data JPA, Validation)
 - MySQL 8 as the real database (`mysql` profile, `docker compose up -d`); in-memory H2 in MySQL
   mode for local runs and tests
+- Web client: plain HTML/CSS/JS in `src/main/resources/static`, served at `/`, no build step
+  (Node is not installed); it uses only the public REST API
 - ActiveMQ Artemis via Spring JMS for the queued checkout (embedded broker by default)
 - JUnit 5 for tests, with AssertJ, Mockito and MockMvc; Locust (Python) for load tests
 
@@ -73,5 +75,8 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
 - Integration tests extend `support/IntegrationTest` (full context, H2, `MutableClock`).
   They are not `@Transactional`, because the race tests need real commits. Each test creates
   its own venue and event instead of cleaning up.
+- `docs/TESTING.md` lists every test scenario with its test method; add a row when you add a test.
+- `CHANGELOG.md` records each version (added, changed, tested, results); update it with every
+  feature, and bump the version in `pom.xml` and `OpenApiConfig` when releasing.
 - Move time with `clock.advance(...)`; the background sweeper is disabled in tests, so call
   `HoldExpiryService.expireLapsedHolds()` directly.

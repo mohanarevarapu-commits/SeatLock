@@ -45,21 +45,46 @@ If you do neither, the hold expires and its seats become available again.
 Creates a venue. Each section is a grid of `rows` × `seatsPerRow`; rows are labelled `A`, `B`, …,
 `Z`, `AA`, `AB`, and so on.
 
+The layout is described on a 3×3 grid with north at the top. Each cell is a **map zone**:
+`NORTH_WEST`, `NORTH`, `NORTH_EAST`, `WEST`, `CENTER`, `EAST`, `SOUTH_WEST`, `SOUTH`,
+`SOUTH_EAST`. The stage takes one zone and sections go in the others, so the same API describes:
+
+| Layout | Stage zone | Sections in |
+|---|---|---|
+| End stage (arena, theatre, opera house) | `NORTH` | `SOUTH`, plus `WEST`/`EAST` for side boxes |
+| Stage in the round | `CENTER` | all eight zones around it |
+| Thrust stage | `CENTER` | `WEST`, `EAST`, `SOUTH` and the south corners |
+| Stadium concert | `NORTH` | `CENTER` for pitch seats, stands in the other zones |
+| Side or corner stage (ground, function hall, club) | e.g. `WEST`, `SOUTH_WEST` | the rest of the room |
+
+Several sections may share a zone: tiers stack away from the stage in the order given, and
+sections beside the stage line up along the wall (like opera boxes). Clients draw each section
+facing the stage, with row `A` nearest to it.
+
 | Field | Type | Rules |
 |---|---|---|
 | `name` | string | required, max 120 chars |
 | `city` | string | required, max 120 chars |
+| `type` | string | optional: `ARENA` (default), `STADIUM`, `GROUND`, `OPERA_HOUSE`, `THEATRE`, `CONCERT_HALL`, `AMPHITHEATRE`, `FUNCTION_HALL`, `CLUB` |
+| `stageZone` | string | optional map zone, default `NORTH` |
+| `stageLabel` | string | optional, max 30 chars, text drawn on the stage; default `STAGE` |
 | `sections` | array | 1 to 50 sections |
 | `sections[].name` | string | required, max 60 chars |
 | `sections[].rows` | int | 1 to 100 |
 | `sections[].seatsPerRow` | int | 1 to 100 |
 | `sections[].priceCents` | long | 0 or more |
+| `sections[].zone` | string | optional map zone, default across from the stage (`SOUTH` for a `CENTER` stage); must not be the stage's zone (`400`) |
 
 ```bash
 curl -s -X POST localhost:8080/api/venues -H 'Content-Type: application/json' -d '{
   "name": "Harbor Hall",
   "city": "Example City",
-  "sections": [{"name": "Stalls", "rows": 2, "seatsPerRow": 3, "priceCents": 5000}]
+  "type": "THEATRE",
+  "stageZone": "NORTH",
+  "sections": [
+    {"name": "Stalls", "rows": 2, "seatsPerRow": 3, "priceCents": 5000, "zone": "SOUTH"},
+    {"name": "Box A", "rows": 1, "seatsPerRow": 2, "priceCents": 9000, "zone": "WEST"}
+  ]
 }'
 ```
 
@@ -70,9 +95,13 @@ curl -s -X POST localhost:8080/api/venues -H 'Content-Type: application/json' -d
   "id": 2,
   "name": "Harbor Hall",
   "city": "Example City",
-  "capacity": 6,
+  "type": "THEATRE",
+  "stageZone": "NORTH",
+  "stageLabel": "STAGE",
+  "capacity": 8,
   "sections": [
-    { "id": 4, "name": "Stalls", "seatCount": 6, "priceCents": 5000 }
+    { "id": 4, "name": "Stalls", "zone": "SOUTH", "seatCount": 6, "priceCents": 5000 },
+    { "id": 5, "name": "Box A", "zone": "WEST", "seatCount": 2, "priceCents": 9000 }
   ]
 }
 ```
@@ -114,6 +143,8 @@ curl -s -X POST localhost:8080/api/events -H 'Content-Type: application/json' -d
   "name": "Example Night",
   "venueId": 2,
   "venueName": "Harbor Hall",
+  "venueCity": "Example City",
+  "venueType": "THEATRE",
   "startsAt": "2026-12-31T20:00:00Z"
 }
 ```
@@ -130,16 +161,21 @@ Fetches one event. `404` if it does not exist.
 
 Every seat for the event, grouped by section, with its live status: `AVAILABLE`, `HELD` or
 `BOOKED`. A seat whose hold has run out shows as `AVAILABLE` immediately, even before the
-background cleanup has run.
+background cleanup has run. It also carries the venue layout (`venueType`, `stageZone`,
+`stageLabel` and each section's `zone`), so a client can draw the map without another request.
 
 ```json
 {
   "eventId": 3,
-  "availableCount": 6,
+  "venueType": "THEATRE",
+  "stageZone": "NORTH",
+  "stageLabel": "STAGE",
+  "availableCount": 8,
   "sections": [
     {
       "sectionId": 4,
       "name": "Stalls",
+      "zone": "SOUTH",
       "priceCents": 5000,
       "availableCount": 6,
       "seats": [
