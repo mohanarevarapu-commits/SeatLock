@@ -19,6 +19,7 @@ import com.seatlock.dto.SeatMapResponse.SeatView;
 import com.seatlock.dto.VenueResponse;
 import com.seatlock.model.Account;
 import com.seatlock.model.MapZone;
+import com.seatlock.model.SeatStatus;
 import com.seatlock.model.VenueType;
 import com.seatlock.repository.AccountRepository;
 import com.seatlock.service.BookingService;
@@ -26,10 +27,15 @@ import com.seatlock.service.EventService;
 import com.seatlock.service.HoldService;
 import com.seatlock.service.VenueService;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -43,7 +49,8 @@ import org.springframework.stereotype.Component;
 /**
  * Seeds fictional venues of every kind, each with its own stage position, and upcoming shows at
  * them when running with the {@code demo} profile. Riverside Arena and its two shows come first, so
- * they keep ids 1 and 1-2, which the load test uses.
+ * they keep ids 1 and 1-2, which the load test uses. A few shows get guest sales so the home page has
+ * shows that are selling fast.
  */
 @Component
 @Profile("demo")
@@ -54,6 +61,9 @@ public class DemoDataLoader implements ApplicationRunner {
     /** Demo sign-in, shown in the README. The address is on example.com, which can never receive mail. */
     static final String DEMO_EMAIL = "demo@example.com";
     static final String DEMO_PASSWORD = "seatlock-demo";
+
+    /** Seats per seeded guest sale; must not exceed seatlock.holds.max-seats-per-hold. */
+    private static final int SEATS_PER_SALE = 4;
 
     private final VenueService venueService;
     private final EventService eventService;
@@ -205,7 +215,16 @@ public class DemoDataLoader implements ApplicationRunner {
                 section("Booths", NORTH_EAST, 4, 6, 6_000)));
         event(velvet, "Late Night Jazz Sessions", 8, 22, 0);
 
+        // Two shows later today, so the home page has something under Today.
+        eventLaterToday(lantern, "Open Mic Night", 3);
+        eventLaterToday(velvet, "Vinyl After Dark", 5);
+
+        // And two tomorrow evening, for the home page's Tomorrow box.
+        event(bowl, "Sunset Acoustic Sessions", 1, 19, 30);
+        event(dome, "Neon Nights Live", 1, 20, 30);
+
         seedDemoAccount();
+        seedTicketSales();
         log.info("Seeded {} demo venues, {} events and the demo account {}", venueService.listVenues().size(), events,
                 DEMO_EMAIL);
     }
@@ -216,6 +235,32 @@ public class DemoDataLoader implements ApplicationRunner {
                 "Demo Fan", "+44 20 7946 0000", clock.instant()));
         book(demo, 9, 2);   // The Glass Garden, Royal Crescent Opera House
         book(demo, 16, 4);  // Late Night Jazz Sessions, The Velvet Room
+    }
+
+    /** Guest sales on a few shows, so some are close to selling out and show under Selling fast. */
+    private void seedTicketSales() {
+        sell(16, 0.85);   // Late Night Jazz Sessions
+        sell(12, 0.72);   // Tidewater: A New Play
+        sell(15, 0.60);   // Golden Hour Gala Dinner
+        sell(11, 0.45);   // Requiem for a Paper Moon
+        sell(17, 0.55);   // Open Mic Night (today)
+        sell(19, 0.50);   // Sunset Acoustic Sessions (tomorrow)
+    }
+
+    /** Books a share of the event's free seats, picked at random (fixed seed), in holds of the allowed size. */
+    private void sell(long eventId, double share) {
+        List<Long> free = new ArrayList<>(eventService.getSeatMap(eventId).sections().stream()
+                .flatMap(section -> section.seats().stream())
+                .filter(seat -> seat.status() == SeatStatus.AVAILABLE)
+                .map(SeatView::eventSeatId)
+                .toList());
+        Collections.shuffle(free, new Random(eventId));
+        List<Long> sold = free.subList(0, (int) (free.size() * share));
+        for (int from = 0; from < sold.size(); from += SEATS_PER_SALE) {
+            Set<Long> seatIds = Set.copyOf(sold.subList(from, Math.min(from + SEATS_PER_SALE, sold.size())));
+            HoldResponse hold = holdService.createHold(eventId, new CreateHoldRequest("demo-crowd", seatIds), null);
+            bookingService.confirmHold(hold.id(), null);
+        }
     }
 
     private void book(Account account, long eventId, int seats) {
@@ -244,6 +289,13 @@ public class DemoDataLoader implements ApplicationRunner {
             boxes.add(section("Box " + (char) (first + i), zone, rows, seatsPerRow, priceCents));
         }
         return boxes;
+    }
+
+    /** A show starting a few hours from now, on the hour. Late at night this falls on tomorrow. */
+    private void eventLaterToday(VenueResponse venue, String name, int hoursFromNow) {
+        Instant at = clock.instant().plus(Duration.ofHours(hoursFromNow)).truncatedTo(ChronoUnit.HOURS);
+        eventService.createEvent(new CreateEventRequest(venue.id(), name, at));
+        events++;
     }
 
     /** Shows start in the evening, in the time zone of the machine running the demo. */

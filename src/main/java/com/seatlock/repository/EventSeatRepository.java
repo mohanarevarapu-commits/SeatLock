@@ -1,7 +1,9 @@
 package com.seatlock.repository;
 
 import com.seatlock.model.EventSeat;
+import com.seatlock.model.SeatStatus;
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -42,4 +44,27 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
             order by es.id
             """)
     List<EventSeat> findAllWithSeatById(@Param("ids") Collection<Long> ids);
+
+    /**
+     * Seat totals per event for the show list, counted in the database. A hold that has lapsed but
+     * not yet been swept counts as available, the same rule as {@code EventSeat.effectiveStatus}.
+     */
+    @Query("""
+            select new com.seatlock.repository.EventSeatCounts(
+                es.event.id,
+                count(es),
+                sum(case when es.status = :available or (es.status = :held and es.heldUntil <= :now) then 1 else 0 end),
+                min(sec.priceCents))
+            from EventSeat es
+            join es.seat s
+            join s.section sec
+            where es.event.id in :eventIds
+            group by es.event.id
+            """)
+    List<EventSeatCounts> countSeatsByEvent(@Param("eventIds") Collection<Long> eventIds, @Param("now") Instant now,
+                                            @Param("available") SeatStatus available, @Param("held") SeatStatus held);
+
+    default List<EventSeatCounts> countSeatsByEvent(Collection<Long> eventIds, Instant now) {
+        return countSeatsByEvent(eventIds, now, SeatStatus.AVAILABLE, SeatStatus.HELD);
+    }
 }

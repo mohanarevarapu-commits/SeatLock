@@ -54,7 +54,8 @@ Artemis broker, and GreenMail, an in-memory SMTP server that receives the accoun
 | `service/ConcurrentHoldIntegrationTest` | Full app, H2, 200 threads | 3 |
 | `service/QueuedCheckoutIntegrationTest` | Full app, H2, embedded broker | 7 |
 | `service/VenueLayoutIntegrationTest` | Full app, H2 | 2 |
-| **Total** | | **119** |
+| `service/EventListingIntegrationTest` | Full app, H2 | 3 |
+| **Total** | | **122** |
 
 Parameterised and repeated tests count once per run, so `SeatTest` has 3 methods but 11 runs, and
 `BookingReferenceGeneratorTest` has 3 methods but 22 runs.
@@ -189,6 +190,16 @@ Venue type, stage position and section zones, from `VenueLayoutTest` (unit) and
 | A venue created with no layout fields (older API clients) | Arena, end stage at the north labelled "STAGE", sections south | `VenueLayoutIntegrationTest.venueWithoutLayoutIsAnArenaWithAnEndStage` |
 | A stage in the round with sections north, west and one unplaced | The event and seat map carry the venue type, city, stage zone and label, and every section's zone | `VenueLayoutIntegrationTest.stageInTheRoundLayoutReachesTheSeatMap` |
 
+### Show list and seat totals
+
+`EventListingIntegrationTest`. The home page's Selling fast and "Only N left" depend on these.
+
+| Scenario | Expected | Test |
+|---|---|---|
+| A new event at a venue with a $80 and a $35 section | All 14 seats on sale, from $35 | `newEventHasEverySeatOnSaleFromTheCheapestSection` |
+| 2 seats booked and 1 held, then the hold runs out before the cleanup job | 7 of 10 on sale; after the hold runs out, 8 of 10 (the lapsed seat counts as on sale) | `bookedAndHeldSeatsAreTakenButALapsedHoldIsOnSaleAgain` |
+| Two events, created later-date first | The list has the sooner one first | `listIsSoonestFirst` |
+
 ### Seats and booking references
 
 | Scenario | Expected | Test |
@@ -207,7 +218,7 @@ Venue type, stage position and section zones, from `VenueLayoutTest` (unit) and
 | Scenario | Expected | Test |
 |---|---|---|
 | A browser opens `/` | It gets the web client page | `rootServesTheWebClient` |
-| The page loads its scripts and styles | `app.js`, `account.js` and `app.css` are served | `scriptsAndStylesAreServed` |
+| The page loads its scripts and styles | `app.js`, `account.js`, `info.js` and `app.css` are served; the stylesheet keeps the rule that makes `hidden` pages invisible | `scriptsAndStylesAreServed` |
 
 ### Accounts, sign-in and email
 
@@ -249,8 +260,8 @@ http://localhost:8080:
 
 | # | Scenario | Steps | Expected |
 |---|---|---|---|
-| 1 | Browse shows | Open the page | 16 shows in date order, each with venue type, venue, city and date |
-| 2 | Filter by venue type | Click **Opera house** | Only the 3 opera house shows remain; **All venues** brings back all 16 |
+| 1 | Home page | Open the page | "Quick, hassle-free concert tickets", "Find your next concert", a one-line description and a search box (no venue list); three boxes side by side, each with a count: **Today** (2 demo concerts starting a few hours after the app started), **Tomorrow** (*Sunset Acoustic Sessions* 19:30, *Neon Nights Live* 20:30) and **Selling fast** (6, first 5 shown, most sold first: *Late Night Jazz Sessions* 85%, *Tidewater* 72%, …, each with a bar); **Browse all 20 concerts** below |
+| 2 | Selling fast opens the concert | Click *Late Night Jazz Sessions* under **Selling fast** | Its page opens at the top (not below the home page) with "43 of 290 seats free" and Free 43, Held by others 0, Sold 247; only the free seats on the map can be clicked |
 | 3 | End stage | Open *The Placeholder Tour* | Stage at the top; Floor, Lower Bowl and Upper Bowl below it, row A nearest the stage |
 | 4 | Stage in the round | Open *Echo Circle Live* | Round stage in the middle; stands on all four sides and in the corners, each facing it |
 | 5 | Stadium | Open *Summer Stadium Fest* | Main stage at the north end, pitch seats in the middle, side stands facing inward; map zoomed to fit |
@@ -263,7 +274,7 @@ http://localhost:8080:
 | 12 | Seat limit | Try to select a 9th seat | Refused with "You can hold up to 8 seats at a time" |
 | 13 | Book now | Select seats, click **Book now** | Payment page opens: a 10:00 countdown (red in the last minute), the show, seats and total, **Pay** and **Cancel and go back** |
 | 14 | Reload during payment | Reload the page on the payment page | The payment page comes back with the same countdown |
-| 15 | Pay | Click **Pay** | "Booking confirmed" page with the reference (e.g. `SL-GUMGX3`); **Back to shows** shows the seats as sold |
+| 15 | Pay | Click **Pay** | "Booking confirmed" page with the reference (e.g. `SL-GUMGX3`); **Back to shows** opens the home page, and the show's seats are sold when you open it again |
 | 16 | Find a booking | Enter the reference under **Find a booking** | The booking's seats and total appear; an unknown reference says no booking was found |
 | 17 | Cancel payment | On the payment page click **Cancel and go back** | Back on the seat map, "Booking cancelled"; the seats are available again |
 | 18 | Browser Back during payment | On the payment page press the browser's Back button | Same as cancelling: back on the seat map and the seats are available again |
@@ -275,6 +286,22 @@ http://localhost:8080:
 | 24 | Server down | Stop the app while the page is open | Within 5 seconds: "Could not reach SeatLock. Is the server running?" |
 | 25 | Phone width | Open the page on a phone or a narrow window | One column, no sideways page scroll; the seat map zooms to fit |
 | 26 | Dark and light mode | Switch the system appearance | Page colours follow it; sold seats stay distinguishable |
+| 27 | Search | Type `lakeside` in the search box | "4 concerts": the Lakeside ones only, as one list; clearing the box brings the sections back |
+| 28 | Search with no match | Type `zzz` | "0 concerts" and "Nothing matches. Try another concert, venue or city." |
+| 29 | Open a show | Click any card or row | The show's page with its seat map; the address is `#event-N` |
+| 30 | Back to all concerts | Click **← All concerts** (or the SeatLock logo) | The home page again, with fresh seat counts |
+| 31 | Link to a show | Open `http://localhost:8080/#event-12` in a new tab | *Tidewater* opens directly, not the home page |
+| 32 | Selling fast updates | Book seats on a show, then go back to the home page | Its "left" count and bar reflect the sale |
+| 33 | Nearly sold out | Book a show down to 20 or fewer seats (or 10% of the venue) | "Only N left" in red on its card and row |
+| 34 | Leave payment for the home page | On the payment page click the SeatLock logo | Home page, "Booking cancelled"; the seats are on sale again |
+| 35 | Home page on a phone | Narrow window | The three boxes stack (Today, Upcoming, Selling fast); rows stay readable; no sideways page scroll |
+| 37 | See all | Click **See all 6** under Selling fast | All 6; **Show less** folds it back to 5 |
+| 38 | Browse all | Click **Browse all 20 concerts** | "All concerts": every concert on sale in date order with venue, city, time and "from" price; **← Back** returns to the boxes |
+| 39 | What we offer | Scroll below the boxes | Four tiles: live seat maps, seats kept while you pay, book in seconds, fair on busy days |
+| 40 | Footer pages | Click **Help & support**, **Terms of use**, **Your data & privacy**, **Security** and **Payments** in the footer | Each opens its page (`#help` … `#payments`) with a side menu to the others and **← Back to concerts**; the text matches how SeatLock works (demo payment, no card details, BCrypt, 30-minute reset links) |
+| 41 | Footer on short pages | Open the log-in page on a tall window | The footer sits at the bottom of the window, not halfway up |
+| 42 | Leave payment for a help page | On the payment page click **Help & support** in the footer | The help page opens, "Booking cancelled", and the seats are on sale again |
+| 36 | Seat status stays live | Keep a concert open; book seats on it in a private window | Within 5 seconds the free count drops and held (then sold) goes up |
 
 ## Manual scenarios: accounts
 

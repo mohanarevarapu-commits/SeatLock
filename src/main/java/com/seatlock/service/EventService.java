@@ -13,6 +13,7 @@ import com.seatlock.model.SeatStatus;
 import com.seatlock.model.Section;
 import com.seatlock.model.Venue;
 import com.seatlock.repository.EventRepository;
+import com.seatlock.repository.EventSeatCounts;
 import com.seatlock.repository.EventSeatRepository;
 import com.seatlock.repository.SeatMapRow;
 import java.time.Clock;
@@ -21,6 +22,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,17 +56,18 @@ public class EventService {
             }
         }
         eventSeatRepository.saveAll(eventSeats);
-        return EventResponse.from(event);
+        return withCounts(List.of(event)).get(0);
     }
 
     @Transactional(readOnly = true)
     public EventResponse getEvent(Long id) {
-        return EventResponse.from(findEvent(id));
+        return withCounts(List.of(findEvent(id))).get(0);
     }
 
+    /** All events, soonest first, each with its seat totals (one counting query for the whole list). */
     @Transactional(readOnly = true)
     public List<EventResponse> listEvents() {
-        return eventRepository.findAll().stream().map(EventResponse::from).toList();
+        return withCounts(eventRepository.findAll(Sort.by("startsAt", "id")));
     }
 
     @Transactional(readOnly = true)
@@ -90,6 +94,17 @@ public class EventService {
         int available = sections.stream().mapToInt(SectionMap::availableCount).sum();
         return new SeatMapResponse(eventId, venue.getType(), venue.getStageZone(), venue.getStageLabel(),
                 available, sections);
+    }
+
+    private List<EventResponse> withCounts(List<Event> events) {
+        if (events.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, EventSeatCounts> counts = eventSeatRepository
+                .countSeatsByEvent(events.stream().map(Event::getId).toList(), clock.instant()).stream()
+                .collect(Collectors.toMap(EventSeatCounts::eventId, c -> c));
+        EventSeatCounts none = new EventSeatCounts(null, 0L, 0L, 0L);
+        return events.stream().map(e -> EventResponse.from(e, counts.getOrDefault(e.getId(), none))).toList();
     }
 
     Event findEvent(Long id) {

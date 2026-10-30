@@ -11,7 +11,7 @@ flowchart LR
     browser --> limiter
     client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
-        web[static web client<br/>index.html, app.js, account.js]
+        web[static web client<br/>index.html, app.js, account.js, info.js]
         limiter[RateLimitingFilter<br/>5 checkout and sign-in req/s per IP] --> security
         security[Spring Security<br/>session sign-in, CSRF,<br/>/api/account needs sign-in] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
@@ -37,7 +37,10 @@ flowchart LR
 
 The web client in `src/main/resources/static` is plain HTML, CSS and JavaScript served by
 Spring Boot at `/`. It has no server-side logic: it calls the same public REST API as any other
-client, so every seat it shows and every hold it places goes through the same checks.
+client, so every seat it shows and every hold it places goes through the same checks. Its home
+page (Today, Tomorrow and Selling fast boxes) is built in the browser from `GET /api/events`, whose seat
+totals come from one grouped count over `event_seats` (`EventSeatRepository.countSeatsByEvent`);
+it reads without locks, so the numbers can be a moment old, which is fine for a show list.
 
 A request passes the rate limiter (checkout and sign-in paths only), then Spring Security, then a
 thin controller, then a service that owns the transaction.

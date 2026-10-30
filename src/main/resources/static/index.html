@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SeatLock Tickets</title>
-    <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="app.css?v=0.6.0">
 </head>
 <body>
 <header class="topbar">
@@ -19,13 +19,47 @@
 </header>
 
 <main class="page">
-    <div id="browse-view">
-        <section class="events" aria-label="Events">
-            <h1>Upcoming shows</h1>
-            <div id="event-list" class="event-list"><p class="muted">Loading events…</p></div>
+    <div id="home-view" class="home">
+        <section class="hero">
+            <p class="eyebrow">Quick, hassle-free concert tickets</p>
+            <h1>Find your next concert</h1>
+            <p class="tagline">Pick your exact seats on a live map and book in seconds. Your seats are kept
+                for you while you pay, so nobody else can take them.</p>
+            <input id="search" class="search" type="search" placeholder="Search concerts, venues or cities"
+                   autocomplete="off" aria-label="Search concerts, venues or cities">
         </section>
+        <div id="home-sections"><p class="muted">Loading concerts…</p></div>
 
-        <section id="event-view" class="event-view" hidden>
+        <section class="offer" aria-labelledby="offer-title">
+            <h2 id="offer-title">What we offer</h2>
+            <div class="offer-grid">
+                <div class="offer-item">
+                    <span class="offer-icon" aria-hidden="true">◎</span>
+                    <h3>Live seat maps</h3>
+                    <p class="muted">Every venue drawn as it really is, stage and all. Seats update every few seconds.</p>
+                </div>
+                <div class="offer-item">
+                    <span class="offer-icon" aria-hidden="true">⏱</span>
+                    <h3>Seats kept while you pay</h3>
+                    <p class="muted">Book now and your seats are yours for 10 minutes. No double bookings, ever.</p>
+                </div>
+                <div class="offer-item">
+                    <span class="offer-icon" aria-hidden="true">⚡</span>
+                    <h3>Book in seconds</h3>
+                    <p class="muted">Book as a guest, or sign in to keep every ticket in My bookings.</p>
+                </div>
+                <div class="offer-item">
+                    <span class="offer-icon" aria-hidden="true">⚖</span>
+                    <h3>Fair on busy days</h3>
+                    <p class="muted">A checkout queue, up to 8 seats per booking and request limits keep big on-sales fair.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="browse-view" hidden>
+        <a class="back-link" href="#">← All concerts</a>
+        <section id="event-view" class="event-view">
             <div class="seat-panel">
                 <div class="event-heading">
                     <div>
@@ -34,11 +68,11 @@
                     </div>
                     <p id="available-count" class="pill"></p>
                 </div>
-                <ul class="legend" aria-label="Seat legend">
-                    <li><span class="seat available"></span>Available</li>
+                <ul class="legend" aria-label="Seat status">
+                    <li><span class="seat available"></span>Free <strong id="count-free"></strong></li>
+                    <li><span class="seat held"></span>Held by others <strong id="count-held"></strong></li>
+                    <li><span class="seat booked"></span>Sold <strong id="count-sold"></strong></li>
                     <li><span class="seat selected"></span>Your selection</li>
-                    <li><span class="seat held"></span>Held by others</li>
-                    <li><span class="seat booked"></span>Sold</li>
                 </ul>
                 <div class="zoom" role="group" aria-label="Zoom the seat map">
                     <button id="zoom-out" class="btn secondary small" type="button" aria-label="Zoom out">−</button>
@@ -68,11 +102,40 @@
     <section id="checkout-view" aria-label="Checkout" hidden></section>
     <section id="auth-view" aria-label="Sign in" hidden></section>
     <section id="account-view" aria-label="My account" hidden></section>
+    <section id="info-view" hidden></section>
 </main>
+
+<footer class="footer">
+    <div class="footer-inner">
+        <div class="footer-brand">
+            <a class="brand" href="#"><span class="logo" aria-hidden="true">◆</span><span>SeatLock</span></a>
+            <p class="muted small">Quick, hassle-free concert tickets.</p>
+        </div>
+        <nav class="footer-links" aria-label="Help and policies">
+            <div>
+                <h3>Help</h3>
+                <a href="#help">Help &amp; support</a>
+                <a href="#bookings">My bookings</a>
+            </div>
+            <div>
+                <h3>Policies</h3>
+                <a href="#terms">Terms of use</a>
+                <a href="#privacy">Your data &amp; privacy</a>
+            </div>
+            <div>
+                <h3>Trust</h3>
+                <a href="#security">Security</a>
+                <a href="#payments">Payments</a>
+            </div>
+        </nav>
+    </div>
+    <p class="footer-note muted small">SeatLock is a demo: no real tickets are sold and no money is taken.</p>
+</footer>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="app.js"></script>
-<script src="account.js"></script>
+<script src="app.js?v=0.6.0"></script>
+<script src="info.js?v=0.6.0"></script>
+<script src="account.js?v=0.6.0"></script>
 </body>
 </html>

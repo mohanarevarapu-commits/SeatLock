@@ -31,8 +31,12 @@ class WebClientIntegrationTest extends IntegrationTest {
     void scriptsAndStylesAreServed() throws Exception {
         mvc.perform(get("/app.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("/api/events")));
-        mvc.perform(get("/app.css")).andExpect(status().isOk());
+        // Pages are switched with the hidden attribute, which a page's own display rule would override.
+        mvc.perform(get("/app.css")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("[hidden] { display: none !important; }")));
         mvc.perform(get("/account.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("/api/auth/login")));
+        mvc.perform(get("/info.js")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("Your data & privacy")));
     }
 }

@@ -1,4 +1,4 @@
-// SeatLock web client: pick a show, select seats, book (seats are kept 10 minutes), then pay.
+// SeatLock web client: find a show on the home page, select seats, book (seats are kept 10 minutes), then pay.
 // Talks only to the public REST API, the same one documented at /swagger-ui.html.
 
 const MAX_SEATS = 8;                  // matches seatlock.holds.max-seats-per-hold
@@ -16,7 +16,10 @@ const state = {
     busy: false,
     refreshTimer: null,
     countdownTimer: null,
-    typeFilter: "ALL",
+    query: "",
+    eventsLoadedAt: 0,
+    openBoxes: new Set(),             // home boxes expanded with "See all"
+    browseAll: false,                 // home page showing the full list instead of the boxes
     zoom: 1,
     me: null,                         // the signed-in account, or null for a guest (see account.js)
 };
@@ -105,22 +108,29 @@ function explain(error) {
     return error.message;
 }
 
-// ---- events --------------------------------------------------------------
+// ---- home page -----------------------------------------------------------
+
+const SELLING_FAST_SHARE = 0.4;       // a concert is selling fast once this share of its seats is gone
+const BOX_ROWS = 5;                   // rows per home box before "See all"
 
 async function loadEvents() {
     try {
         state.events = await api("/api/events");
+        state.eventsLoadedAt = Date.now();
     } catch (error) {
-        $("event-list").replaceChildren(el("p", { class: "muted" }, explain(error)));
+        $("home-sections").replaceChildren(el("p", { class: "muted" }, explain(error)));
         return;
     }
-    renderEvents();
-    if (state.events.length === 0) return;
+    if (!$("home-view").hidden) renderHome();
+}
 
-    const savedHoldId = storage("get", "seatlock.holdId");
-    if (savedHoldId && await restoreHold(savedHoldId)) return;
-    const fromHash = Number(location.hash.replace("#event-", ""));
-    selectEvent(state.events.find(e => e.id === fromHash) || state.events[0]);
+function showHome() {
+    state.event = null;
+    clearInterval(state.refreshTimer);
+    showPage("home");
+    renderHome();
+    // Seat counts move on while the buyer looks at a show; refresh them unless they are brand new.
+    if (Date.now() - (state.eventsLoadedAt || 0) > 5000) loadEvents();
 }
 
 function typeLabel(type) {
@@ -133,46 +143,145 @@ function shortDate(iso) {
         { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function renderEvents() {
-    const list = $("event-list");
-    if (state.events.length === 0) {
-        list.replaceChildren(el("p", { class: "muted" },
-            "No events yet. Start the app with the demo profile to get some."));
-        return;
-    }
-    const types = [...new Set(state.events.map(e => e.venueType))].sort();
-    const filters = el("div", { class: "filters", role: "group", "aria-label": "Filter by venue type" },
-        ["ALL", ...types].map(type => el("button", {
-            class: "chip" + (state.typeFilter === type ? " active" : ""),
-            type: "button",
-            "aria-pressed": String(state.typeFilter === type),
-            onclick: () => { state.typeFilter = type; renderEvents(); },
-        }, type === "ALL" ? "All venues" : typeLabel(type))));
+function timeOnly(iso) {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
 
-    const shown = state.events
-        .filter(e => state.typeFilter === "ALL" || e.venueType === state.typeFilter)
-        .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-    const cards = shown.map(event => el("button", {
-        class: "event-card" + (state.event?.id === event.id ? " active" : ""),
-        type: "button",
-        onclick: () => selectEvent(event),
-    },
-        el("span", { class: "badge" }, typeLabel(event.venueType)),
-        el("strong", {}, event.name),
-        el("span", { class: "muted" }, `${event.venueName}, ${event.venueCity}`),
-        el("span", { class: "muted" }, shortDate(event.startsAt))));
-    list.replaceChildren(filters, el("div", { class: "event-grid" }, cards));
-    list.querySelector(".event-card.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+function soldShare(event) {
+    return event.totalSeats ? 1 - event.availableSeats / event.totalSeats : 0;
+}
+
+function isSameDay(iso, day) {
+    return new Date(iso).toDateString() === day.toDateString();
+}
+
+function matchesSearch(event) {
+    const query = state.query.trim().toLowerCase();
+    return !query || [event.name, event.venueName, event.venueCity].some(t => t.toLowerCase().includes(query));
+}
+
+// "Only 12 left" once a show is nearly gone, so buyers see it without opening the seat map.
+function availabilityNote(event) {
+    if (event.availableSeats === 0) return el("span", { class: "note hot" }, "Sold out");
+    if (event.availableSeats <= Math.max(20, event.totalSeats * 0.1)) {
+        return el("span", { class: "note hot" }, `Only ${event.availableSeats} left`);
+    }
+    return null;
+}
+
+function renderHome() {
+    const box = $("home-sections");
+    if (state.events.length === 0) {
+        return box.replaceChildren(el("p", { class: "muted" },
+            "No concerts yet. Start the app with the demo profile to get some."));
+    }
+    const now = Date.now();
+    const onSale = state.events.filter(e => new Date(e.startsAt) > now);
+
+    // Searching, or Browse all: one plain list.
+    if (state.query.trim() || state.browseAll) {
+        const shows = onSale.filter(matchesSearch);
+        const title = state.query.trim() ? `${shows.length} ${shows.length === 1 ? "concert" : "concerts"}` : "All concerts";
+        return box.replaceChildren(el("section", { class: "home-section" },
+            el("div", { class: "list-head" }, el("h2", {}, title),
+                state.browseAll && !state.query.trim() ? el("button", {
+                    class: "see-all", type: "button", onclick: () => { state.browseAll = false; renderHome(); },
+                }, "← Back") : null),
+            shows.length > 0 ? showList(shows)
+                : el("p", { class: "muted" }, "Nothing matches. Try another concert, venue or city.")));
+    }
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = onSale.filter(e => isSameDay(e.startsAt, new Date()));
+    const nextDay = onSale.filter(e => isSameDay(e.startsAt, tomorrow));
+    const sellingFast = onSale
+        .filter(e => e.availableSeats > 0 && soldShare(e) >= SELLING_FAST_SHARE)
+        .sort((a, b) => soldShare(b) - soldShare(a));
+    const timeRow = event => [
+        el("span", { class: "date-tile time" }, el("strong", {}, timeOnly(event.startsAt))),
+        boxMain(event, event.venueName),
+        availabilityNote(event),
+    ];
+    box.replaceChildren(
+        el("div", { class: "home-boxes" },
+            homeBox("today", "Today", today, "No more concerts today.", timeRow),
+            homeBox("tomorrow", "Tomorrow", nextDay, "No concerts tomorrow.", timeRow),
+            homeBox("fast", "Selling fast", sellingFast, "Nothing is close to selling out.", event => {
+                const sold = Math.round(soldShare(event) * 100);
+                return [
+                    dateTile(event),
+                    boxMain(event, null, el("span", { class: "meter", role: "img", "aria-label": `${sold}% of seats sold` },
+                        el("span", { style: `width: ${sold}%` }))),
+                    el("span", { class: "note hot" }, `${sold}% sold`),
+                ];
+            })),
+        el("div", { class: "browse-all" }, el("button", {
+            class: "btn secondary", type: "button", onclick: () => { state.browseAll = true; renderHome(); },
+        }, `Browse all ${onSale.length} concerts`)));
+}
+
+// One of the three home boxes: the first few concerts, and "See all" for the rest.
+function homeBox(key, title, shows, emptyText, row) {
+    const open = state.openBoxes.has(key);
+    const shown = open ? shows : shows.slice(0, BOX_ROWS);
+    return el("section", { class: "home-box" },
+        el("div", { class: "home-box-head" }, el("h2", {}, title), el("span", { class: "count" }, String(shows.length))),
+        shows.length === 0 ? el("p", { class: "muted small empty" }, emptyText)
+            : el("ul", { class: "box-list" }, shown.map(event =>
+                el("li", {}, el("a", { class: "box-row", href: `#event-${event.id}` }, row(event))))),
+        shows.length > BOX_ROWS ? el("button", {
+            class: "see-all", type: "button",
+            onclick: () => { open ? state.openBoxes.delete(key) : state.openBoxes.add(key); renderHome(); },
+        }, open ? "Show less" : `See all ${shows.length}`) : null);
+}
+
+function dateTile(event) {
+    const date = new Date(event.startsAt);
+    return el("span", { class: "date-tile" },
+        el("span", {}, date.toLocaleString(undefined, { month: "short" })),
+        el("strong", {}, String(date.getDate())));
+}
+
+function boxMain(event, line, extra) {
+    return el("span", { class: "show-main" }, el("strong", {}, event.name),
+        line ? el("span", { class: "muted" }, line) : null, extra);
+}
+
+function showList(shows) {
+    return el("ul", { class: "show-list" }, shows.map(event => {
+        const date = new Date(event.startsAt);
+        return el("li", {}, el("a", { class: "show-row", href: `#event-${event.id}` },
+            el("span", { class: "date-tile" },
+                el("span", {}, date.toLocaleString(undefined, { month: "short" })),
+                el("strong", {}, String(date.getDate()))),
+            el("span", { class: "show-main" },
+                el("strong", {}, event.name),
+                el("span", { class: "muted" },
+                    `${event.venueName}, ${event.venueCity} · ${date.toLocaleString(undefined,
+                        { weekday: "short", hour: "2-digit", minute: "2-digit" })}`)),
+            el("span", { class: "show-side" },
+                availabilityNote(event) || el("span", { class: "muted small" }, typeLabel(event.venueType)),
+                el("span", {}, `From ${money(event.fromPriceCents)}`))));
+    }));
+}
+
+$("search").addEventListener("input", event => {
+    state.query = event.target.value;
+    renderHome();
+});
+
+// ---- one show ------------------------------------------------------------
+
+function openEvent(event) {
+    showPage("browse");
+    selectEvent(event);
 }
 
 async function selectEvent(event) {
     if (state.event?.id === event.id) return;
     state.event = event;
     state.selected.clear();
-    // Keep the address of a show, but never overwrite a log-in, reset-password or account link.
-    if (!location.hash || location.hash.startsWith("#event-")) history.replaceState(null, "", `#event-${event.id}`);
-    renderEvents();
-    $("event-view").hidden = false;
     $("event-name").textContent = event.name;
     $("event-meta").textContent =
         `${event.venueName}, ${event.venueCity} · ${typeLabel(event.venueType)} · ${dateTime(event.startsAt)}`;
@@ -199,7 +308,7 @@ async function refreshSeatMap() {
     if (state.event?.id !== event.id) return;   // user switched shows meanwhile
 
     if (state.seatEls.size === 0) buildSeatMap(map);
-    $("available-count").textContent = `${map.availableCount.toLocaleString()} of ${countSeats(map).toLocaleString()} available`;
+    showSeatStatus(map);
 
     let lostSelection = 0;
     for (const section of map.sections) {
@@ -216,8 +325,19 @@ async function refreshSeatMap() {
     paintSeats();
 }
 
-function countSeats(map) {
-    return map.sections.reduce((sum, s) => sum + s.seats.length, 0);
+// The live seat status above the map: free, held and sold counts, refreshed with the map.
+function showSeatStatus(map) {
+    const counts = { AVAILABLE: 0, HELD: 0, BOOKED: 0 };
+    for (const section of map.sections) {
+        for (const seat of section.seats) counts[seat.status]++;
+    }
+    const total = counts.AVAILABLE + counts.HELD + counts.BOOKED;
+    $("available-count").textContent = counts.AVAILABLE === 0 ? "Sold out"
+        : `${counts.AVAILABLE.toLocaleString()} of ${total.toLocaleString()} seats free`;
+    $("available-count").classList.toggle("hot", counts.AVAILABLE <= Math.max(20, total * 0.1));
+    $("count-free").textContent = counts.AVAILABLE.toLocaleString();
+    $("count-held").textContent = counts.HELD.toLocaleString();
+    $("count-sold").textContent = counts.BOOKED.toLocaleString();
 }
 
 // The venue is drawn on a 3x3 grid, north at the top. The stage takes one cell (an end stage is
@@ -484,10 +604,12 @@ function queueSeats() {
 // ---- payment page --------------------------------------------------------
 
 function showPage(page) {
+    $("home-view").hidden = page !== "home";
     $("browse-view").hidden = page !== "browse";
     $("checkout-view").hidden = page !== "checkout";
     $("auth-view").hidden = page !== "auth";
     $("account-view").hidden = page !== "account";
+    $("info-view").hidden = page !== "info";
     if (page === "browse") fitSeatMap();
     window.scrollTo(0, 0);
 }
@@ -534,7 +656,7 @@ function renderConfirmation(booking) {
             ...bookingView(booking),
             state.me ? el("p", { class: "muted small" }, "This booking is saved under My bookings.") : null,
             state.me ? el("a", { class: "btn secondary", href: "#bookings" }, "View my bookings") : null,
-            el("button", { class: "btn", type: "button", onclick: backToSeatMap }, "Back to shows"))));
+            el("a", { class: "btn", href: "#" }, "Back to shows"))));
 }
 
 function formatRemaining(hold) {
@@ -619,9 +741,12 @@ async function cancelCheckout() {
 // The browser's Back button on the payment page cancels the booking, like the Cancel button.
 // Moving to an account page instead is handled by route() in account.js.
 window.addEventListener("popstate", () => {
-    if (location.hash !== "" && !location.hash.startsWith("#event-")) return;
-    if (state.hold) cancelCheckout();
-    else if (!$("checkout-view").hidden) backToSeatMap();
+    if (location.hash.startsWith("#event-")) {
+        if (state.hold) cancelCheckout();
+        else if (!$("checkout-view").hidden) backToSeatMap();
+    } else if ((location.hash === "" || isInfoRoute(location.hash)) && state.hold) {
+        releaseHoldBeforeLeaving();   // off to the home or a help page; route() shows it
+    }
 });
 
 async function restoreHold(holdId) {
@@ -633,7 +758,9 @@ async function restoreHold(holdId) {
         }
         const event = state.events.find(e => e.id === hold.eventId);
         if (!event) return false;
-        await selectEvent(event);
+        // Back from the payment page then lands on this show's seat map.
+        history.replaceState(null, "", `#event-${event.id}`);
+        openEvent(event);
         openCheckout(hold);
         return true;
     } catch {

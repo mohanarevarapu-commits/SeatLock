@@ -41,26 +41,43 @@ position:
 | Venue | Type | Stage | Seats | Shows |
 |---|---|---|---|---|
 | Riverside Arena | Arena | End stage (north) | 5,000 | 2 |
-| Meridian Dome | Arena | In the round | 1,192 | 2 |
+| Meridian Dome | Arena | In the round | 1,192 | 3 |
 | Harbourline Stadium | Stadium | Main stage at one end, seats on the pitch | 5,240 | 2 |
 | Oakmoor Cricket Ground | Ground | Pitch stage in the middle, stands all round | 2,000 | 1 |
 | Old Mill Fairground | Ground | Side stage (west) | 1,380 | 1 |
 | Royal Crescent Opera House | Opera house | End stage, boxes on both walls, three tiers | 1,140 | 2 |
 | Teatro Lumen | Opera house | End stage at the south | 720 | 1 |
-| Lantern Street Theatre | Theatre | Thrust stage, seats on three sides | 464 | 1 |
+| Lantern Street Theatre | Theatre | Thrust stage, seats on three sides | 464 | 2 |
 | Lakeview Concert Hall | Concert hall | Orchestra in the middle, choir seats behind | 916 | 1 |
-| Sunset Bowl Amphitheatre | Amphitheatre | End stage, seats fanning out | 1,632 | 1 |
+| Sunset Bowl Amphitheatre | Amphitheatre | End stage, seats fanning out | 1,632 | 2 |
 | Grand Pearl Banquet Hall | Function hall | Stage and dance floor on the east wall | 392 | 1 |
-| The Velvet Room | Club | Corner stage | 290 | 1 |
+| The Velvet Room | Club | Corner stage | 290 | 2 |
 
-Riverside Arena is venue 1 and its two shows are events 1 and 2, which the load test uses.
+Riverside Arena is venue 1 and its two shows are events 1 and 2, which the load test uses. Two of
+the 20 shows start a few hours after the app starts and two tomorrow evening, so the home page
+has something under **Today** and **Tomorrow**, and six shows already have guest sales (45–85%
+sold), so **Selling fast** is filled too.
 
 ### Web client
 
 The page at `/` lets you buy tickets in a browser:
 
-- Pick a show (filter by venue type), then click seats on the live seat map (up to 8). The map
-  refreshes every 5 seconds, so seats others hold or buy change colour while you watch.
+- The home page is about the concerts: a short description of SeatLock ("quick, hassle-free
+  concert tickets"), a search box (concert, venue or city) and three boxes side by side (stacked
+  on a phone): **Today** and **Tomorrow** (time, concert and venue) and **Selling fast**
+  (concerts with at least 40% of seats gone, most sold first, with "% sold" and a bar). Each box
+  shows 5 rows and **See all** for the rest. **Browse all concerts**, or searching, shows one list
+  of every concert on sale with dates and "from" prices.
+- Below that, **What we offer** (live seat maps, seats kept while you pay, booking in seconds,
+  fairness on busy days), and a footer on every page linking to **Help & support**, **Terms of
+  use**, **Your data & privacy**, **Security** and **Payments** (`#help`, `#terms`, `#privacy`,
+  `#security`, `#payments`). These pages describe only what SeatLock really does: payment is a
+  demo and no card details are taken.
+- Click any concert (including a Selling fast card) to open its page (`#event-N`, so it can be
+  linked); **← All concerts** goes back. The page opens on the live seat status, "43 of 290 seats
+  free" with free, held and sold counts, above the seat map. Click free seats to select them (up
+  to 8). The map and counts refresh every 5 seconds, so seats others hold or buy change colour
+  while you watch.
 - The map is drawn from the venue's layout: the stage sits where it really is (at one end, in the
   middle, on a side or in a corner) and every section faces it, with row A nearest the stage.
   Large venues are zoomed to fit; use **−**, **+** and **Fit** to zoom.
@@ -268,7 +285,7 @@ Performance notes:
 ## Project layout
 
 ```
-src/main/resources/static/  Web client: index.html, app.js, app.css
+src/main/resources/static/  Web client: index.html, app.js, account.js, info.js, app.css
 src/main/java/com/seatlock
 ├── config/        Clock, OpenAPI, hold/queue/rate-limit settings, demo data seeder
 ├── controller/    REST endpoints

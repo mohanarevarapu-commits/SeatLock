@@ -9,6 +9,7 @@ the steps.
 
 | Version | Date | Theme | Automated tests | Commits |
 |---|---|---|---|---|
+| [0.6.0](#060--2026-10-31) | 2026-10-31 | Minimal home page: description, search, Today / Tomorrow / Selling fast boxes, What we offer, footer with help and policy pages; live seat status; seat totals in the event API | 122 | tag `v0.6.0` |
 | [0.5.0](#050--2026-10-31) | 2026-10-31 | Buyer accounts: sign-up, log-in, forgot password by email, profile menu, My bookings | 119 | tag `v0.5.0` |
 | [0.4.0](#040--2026-10-31) | 2026-10-31 | Web client, venue layouts, Book now checkout, test scenarios | 99 | tag `v0.4.0` |
 | [0.3.0](#030--2026-10-30) | 2026-10-30 | Traffic spikes: rate limiting, queued checkout, load testing | 86 | `085ece7`, `36a7108` |
@@ -17,10 +18,68 @@ the steps.
 
 ---
 
+## 0.6.0 — 2026-10-31
+
+A minimal home page instead of one long strip of shows.
+
+### Added
+
+- **Home page** at `/`, focused on the concerts: "Quick, hassle-free concert tickets", "Find your
+  next concert", a one-line description and a search box (concert, venue or city), then three
+  boxes side by side (stacked on a phone), each with a count, 5 rows and **See all** for the rest:
+  - **Today** and **Tomorrow**: start time, concert and venue; "Only N left" in red when nearly gone.
+  - **Selling fast**: concerts with at least 40% of their seats gone, most sold first, with
+    "% sold" and a bar.
+  - **Browse all concerts** (or searching) shows one list of every concert on sale with date,
+    venue, city and "from" price.
+- **What we offer**: four tiles under the boxes (live seat maps, seats kept while you pay, book
+  in seconds, fair on busy days).
+- **Footer** on every page, with **Help & support** (FAQ), **Terms of use**, **Your data &
+  privacy**, **Security** and **Payments** pages (`#help`, `#terms`, `#privacy`, `#security`,
+  `#payments`, in `static/info.js`). They describe only what SeatLock does today: the checkout
+  is a demo, no card details are taken, passwords are BCrypt hashes, reset links last 30 minutes.
+  Leaving the payment page for one of them releases the seats.
+  - Searching turns the sections into one list of matches.
+- **Concert page**: any concert, including a Selling fast card, opens on its own page
+  (`#event-N`, linkable) with **← All concerts** back to the home page. It opens on the live seat
+  status: "43 of 290 seats free" (red when nearly gone) and Free / Held by others / Sold counts
+  next to the legend, refreshed with the seat map every 5 seconds.
+- **Seat totals in the event API**: `totalSeats`, `availableSeats` and `fromPriceCents` on every
+  event response; `GET /api/events` is sorted soonest first and counts all events' seats in one
+  grouped query.
+- **Demo data**: two concerts starting a few hours after the app starts (*Open Mic Night*,
+  *Vinyl After Dark*), two tomorrow evening (*Sunset Acoustic Sessions*, *Neon Nights Live*), and
+  guest sales on six concerts (45–85% sold), so Today, Tomorrow and Selling fast are filled.
+  20 concerts in total; ids 1–16 are unchanged.
+
+### Changed
+
+- The horizontal strip of show cards and the venue-type filter are gone; the seat map has the
+  page to itself.
+- **Back to shows** after paying, and the SeatLock logo, go to the home page. Leaving the payment
+  page for the home page releases the seats, like Back and Cancel.
+- The page loads `app.css`, `app.js` and `account.js` with `?v=0.6.0`, so browsers fetch the new
+  files after an upgrade instead of showing the old page from cache. Bump it with each release.
+- Version 0.6.0 in `pom.xml` and the OpenAPI spec.
+
+### Tested
+
+| What | How | Result |
+|---|---|---|
+| Full test suite | `./mvnw clean test` | 122 tests, 0 failures (3 new) |
+| Seat totals | `EventListingIntegrationTest` (3) | New event fully on sale from the cheapest section; booked and held seats taken; a lapsed hold counts as on sale before the cleanup job; list soonest first |
+| Running app | `curl /api/events` | 20 concerts; seeded sales match (e.g. *Late Night Jazz Sessions* 43 of 290 left) |
+| Web client | Headless Chrome, desktop and phone width, dark mode | Home page boxes (Today 2, Tomorrow 2, Selling fast 6) with **See all** and **Browse all 20 concerts**; What we offer; footer link to **Payments** opens that page; the Security page; clicking the second Selling fast row opens *Tidewater* with 130 of 464 seats free; search for "lakeside" gives 4 concerts; clicking the top Selling fast card opens *Late Night Jazz Sessions* with 43 free, 0 held, 247 sold; **← All concerts** returns; a `#event-16` link opens that concert; clicking the logo on the payment page releases the hold (`RELEASED`) |
+| Manual scenarios | `docs/TESTING.md` rows 1, 2, 15 updated, 27–42 added | |
+| Bugs found and fixed | Screenshots | The footer's last line ignored its margin (a general rule overrode it); on short pages the footer floated halfway up the window, so the page now fills the window |
+| Bug found and fixed | Screenshot of the concert page | The home page's `display: grid` overrode the `hidden` attribute, so a clicked concert opened below the still-visible home page. A global `[hidden] { display: none !important; }` fixes it for every page; `WebClientIntegrationTest` checks the rule is there |
+
+---
+
 ## 0.5.0 — 2026-10-31
 
 Optional buyer accounts. Phase 1 of 2: watchlist, "booking opens" alerts, show reminders and
-"selling fast" emails come in 0.6.0.
+"selling fast" emails come later (planned for 0.7.0, after the 0.6.0 home page).
 
 ### Added
 
@@ -283,6 +342,6 @@ These are known and documented; none is a bug in the current scope.
    For changes to locking or checkout, also run the load test.
 2. Add a section at the top of this file: what was added, changed and fixed, and a **Tested** table
    with the results. Add the version to the summary table.
-3. Set the version in `pom.xml` (`<version>`) and in `config/OpenApiConfig.java` (`.version(...)`).
+3. Set the version in `pom.xml` (`<version>`), in `config/OpenApiConfig.java` (`.version(...)`) and in the `?v=` of the three file links in `static/index.html`.
 4. Commit, then tag the commit: `git tag -a v0.4.0 -m "SeatLock 0.4.0"` and
    `git push origin v0.4.0`.

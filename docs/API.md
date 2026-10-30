@@ -149,13 +149,22 @@ curl -s -X POST localhost:8080/api/events -H 'Content-Type: application/json' -d
   "venueName": "Harbor Hall",
   "venueCity": "Example City",
   "venueType": "THEATRE",
-  "startsAt": "2026-12-31T20:00:00Z"
+  "startsAt": "2026-12-31T20:00:00Z",
+  "totalSeats": 120,
+  "availableSeats": 120,
+  "fromPriceCents": 4500
 }
 ```
 
+Every event response carries seat totals: `availableSeats` of `totalSeats` are still on sale (a
+hold that has run out counts as on sale, even before the cleanup job has released it), and
+`fromPriceCents` is the cheapest section's price. The web client uses them for **Selling fast**
+and "Only N left" on its home page.
+
 ### `GET /api/events`
 
-Lists all events.
+Lists all events, soonest first, each with its seat totals. The totals are counted in one query
+for the whole list.
 
 ### `GET /api/events/{id}`
 

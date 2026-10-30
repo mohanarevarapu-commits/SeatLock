@@ -354,11 +354,16 @@ function route() {
     if (hash === "#checkout") return;
     const accountRoute = hash === "#login" || hash === "#register" || hash === "#forgot"
         || hash.startsWith("#reset/") || hash === "#bookings" || hash === "#profile";
+    if (isInfoRoute(hash)) {
+        // Help and policy pages; leaving the payment page is handled by its popstate listener.
+        renderInfo(hash.slice(1));
+        return;
+    }
     if (!accountRoute) {
-        // A show (#event-N) or the start page: the payment page handles its own Back button.
-        if (!$("auth-view").hidden || !$("account-view").hidden) showPage("browse");
+        // A show (#event-N) or the home page. Leaving the payment page is handled by its popstate listener.
         const event = state.events.find(e => `#event-${e.id}` === hash);
-        if (event && !$("browse-view").hidden) selectEvent(event);
+        if (event) openEvent(event);
+        else showHome();
         return;
     }
     if (state.hold && !$("checkout-view").hidden) releaseHoldBeforeLeaving();
@@ -383,5 +388,7 @@ window.addEventListener("hashchange", route);
 
 (async () => {
     await Promise.all([loadMe(), loadEvents()]);
+    const savedHoldId = storage("get", "seatlock.holdId");
+    if (savedHoldId && await restoreHold(savedHoldId)) return;
     route();
 })();

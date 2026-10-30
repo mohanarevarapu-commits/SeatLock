@@ -49,7 +49,7 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
   for requests that carry a session cookie; the web client sends `X-XSRF-TOKEN`. Spring Security
   sends `X-Frame-Options: DENY`, so the page cannot be shown in a frame (drive browser tests
   through a test-only page, not an iframe).
-- Web client: `static/app.js` (shows, seat map, checkout) and `static/account.js` (sign-in,
+- Web client: `static/app.js` (home page with Today / Tomorrow / Selling fast boxes, seat map, checkout), `static/info.js` (help and policy pages linked from the footer; keep their text true to what the app does) and `static/account.js` (sign-in,
   profile menu, My bookings, routing by `#hash`; it also starts the page).
 
 ## Concurrency rules (do not break these)
@@ -90,6 +90,6 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
   its own venue and event instead of cleaning up.
 - `docs/TESTING.md` lists every test scenario with its test method; add a row when you add a test.
 - `CHANGELOG.md` records each version (added, changed, tested, results); update it with every
-  feature, and bump the version in `pom.xml` and `OpenApiConfig` when releasing.
+  feature, and bump the version in `pom.xml`, `OpenApiConfig` and the `?v=` links in `static/index.html` when releasing.
 - Move time with `clock.advance(...)`; the background sweeper is disabled in tests, so call
   `HoldExpiryService.expireLapsedHolds()` directly.
