@@ -7,13 +7,13 @@ API and docs/ARCHITECTURE.md for the concurrency design.
 ## Tech stack
 
 - Java 17
-- Spring Boot 3.5 (Web, Data JPA, Validation)
+- Spring Boot 3.5 (Web, Data JPA, Validation, Security, Mail)
 - MySQL 8 as the real database (`mysql` profile, `docker compose up -d`); in-memory H2 in MySQL
   mode for local runs and tests
 - Web client: plain HTML/CSS/JS in `src/main/resources/static`, served at `/`, no build step
   (Node is not installed); it uses only the public REST API
 - ActiveMQ Artemis via Spring JMS for the queued checkout (embedded broker by default)
-- JUnit 5 for tests, with AssertJ, Mockito and MockMvc; Locust (Python) for load tests
+- JUnit 5 for tests, with AssertJ, Mockito, MockMvc and GreenMail (in-memory SMTP); Locust (Python) for load tests
 
 ## Commands
 
@@ -45,6 +45,12 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
   dead-letters it.
 - `ratelimit/RateLimitingFilter` limits checkout requests per client IP (`seatlock.rate-limit.*`).
   It is off in the `test` profile because the test clock is frozen; `RateLimitingFilterTest` covers it.
+- `security/SecurityConfig`: session sign-in, only `/api/account/**` needs it. CSRF is checked only
+  for requests that carry a session cookie; the web client sends `X-XSRF-TOKEN`. Spring Security
+  sends `X-Frame-Options: DENY`, so the page cannot be shown in a frame (drive browser tests
+  through a test-only page, not an iframe).
+- Web client: `static/app.js` (shows, seat map, checkout) and `static/account.js` (sign-in,
+  profile menu, My bookings, routing by `#hash`; it also starts the page).
 
 ## Concurrency rules (do not break these)
 
@@ -66,7 +72,14 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
 - Constructor injection only; no field `@Autowired` in main code.
 - DTOs are Java records; entities are plain classes with protected no-arg constructors and no setters.
 - Money is `long` cents. Times are `Instant` in UTC.
-- No personal data: customers are identified only by an opaque `customerRef`.
+- Personal data: only account holders' name, email and optional phone are stored. Guests stay
+  anonymous (`customerRef` only). Passwords only as BCrypt hashes, reset tokens only as SHA-256
+  hashes; never store card details, and never log email bodies (they can hold reset links).
+- Accounts are optional: never require sign-in for browsing or booking. Pass the signed-in account
+  id from the controller (`@AuthenticationPrincipal AccountPrincipal`, null for guests) into the
+  service; a hold with an account is usable only by that account (`Hold.isAccessibleBy`, 404 otherwise).
+- Emails: publish an event inside the transaction and send it from an `@Async @TransactionalEventListener`
+  (see `notification/AccountMailer`), never inline. SMTP settings come from `SPRING_MAIL_*` env vars only.
 
 ## Tests
 

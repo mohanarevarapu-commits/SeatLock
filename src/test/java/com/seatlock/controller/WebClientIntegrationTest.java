@@ -32,5 +32,7 @@ class WebClientIntegrationTest extends IntegrationTest {
         mvc.perform(get("/app.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("/api/events")));
         mvc.perform(get("/app.css")).andExpect(status().isOk());
+        mvc.perform(get("/account.js")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("/api/auth/login")));
     }
 }

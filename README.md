@@ -5,17 +5,23 @@ temporary **hold** on seats (10 minutes by default), then **confirm** it into a 
 SeatLock guarantees a seat is never held or sold to two customers at once, even when many
 requests arrive at the same moment.
 
-All venues, events and customers in this project are fictional. Customers are identified
-only by an opaque `customerRef` token, never by personal data.
+All venues, events and customers in this project are fictional.
+
+**Personal data.** Accounts are optional. Guests book with only an opaque `customerRef` token.
+Buyers who create an account give their name, email and (optionally) a phone number; that is the
+only personal data SeatLock stores. Passwords are stored only as BCrypt hashes, reset links only
+as SHA-256 hashes, and SeatLock never asks for or stores card details.
 
 ## Tech stack
 
 - Java 17, Spring Boot 3.5 (Web, Data JPA, Validation)
 - H2 (in-memory, MySQL mode) for development and tests; MySQL 8 for a real database
 - ActiveMQ Artemis (Spring JMS) for the queued checkout, embedded by default
+- Spring Security for accounts (session sign-in, BCrypt passwords, CSRF protection)
+- Spring Mail (SMTP) for account emails: welcome, password reset, password changed
 - springdoc-openapi for the OpenAPI spec and Swagger UI
 - Plain HTML, CSS and JavaScript for the web client (no build step, served by Spring Boot)
-- JUnit 5, AssertJ, Mockito, MockMvc
+- JUnit 5, AssertJ, Mockito, MockMvc, GreenMail (in-memory SMTP server for tests)
 - Locust (Python) for load testing
 - Maven (via the included `./mvnw` wrapper, so no local Maven install is needed)
 
@@ -72,6 +78,47 @@ It is plain HTML, CSS and JavaScript in `src/main/resources/static`, with no bui
 only the public REST API. Each browser gets a random `customerRef` (kept in local storage), and
 reloading during payment returns to the payment page with the same countdown.
 
+### Accounts
+
+Buyers can sign up, log in, and find all their bookings under **My bookings**. Accounts are
+optional: guests can still browse and book exactly as before.
+
+- **Sign up / Log in** in the top-right corner. Once signed in, the corner shows the buyer's
+  initials and first name; its menu shows their name, email and phone, and links to **My
+  bookings**, **Profile** and **Log out**.
+- **My bookings** lists bookings for shows still to come (**Active**) and shows that have
+  happened (**Past**), with seats, total and booking reference.
+- **Profile** changes the name and phone number. The email is the sign-in name and is fixed.
+- **Forgot password?** emails a link that works once, for 30 minutes. Asking for a new link
+  cancels the old one; after the reset, a "password changed" email is sent.
+- A signed-in buyer's holds are theirs alone: nobody else can view, release or confirm them.
+
+The `demo` profile creates a demo account: **demo@example.com** / **seatlock-demo**, with two
+bookings.
+
+#### Sending email
+
+SeatLock sends email over SMTP using Spring's standard settings. Set them as environment
+variables (never commit them):
+
+```bash
+export SPRING_MAIL_HOST=smtp.gmail.com
+export SPRING_MAIL_PORT=587
+export SPRING_MAIL_USERNAME=you@gmail.com
+export SPRING_MAIL_PASSWORD='your 16-character app password'
+export SEATLOCK_MAIL_FROM='SeatLock <you@gmail.com>'
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+```
+
+For Gmail, turn on 2-Step Verification for the account and create an **app password** at
+https://myaccount.google.com/apppasswords; your normal Gmail password will not work. Any other
+SMTP provider works the same way with its own host, port and credentials. STARTTLS is on by
+default.
+
+Without `SPRING_MAIL_HOST`, the app still runs and skips emails with a warning in the log (the
+email content, which can contain a reset link, is never logged). Set `SEATLOCK_BASE_URL` when the
+app is not at `http://localhost:8080`, so links in emails point to the right place.
+
 ### Using MySQL instead of H2
 
 ```bash
@@ -103,6 +150,10 @@ version added and how it was tested is in [CHANGELOG.md](CHANGELOG.md).
 | `DELETE` | `/api/holds/{id}` | Release a hold early |
 | `POST` | `/api/holds/{id}/confirm` | Turn a hold into a booking |
 | `GET` | `/api/bookings/{reference}` | Fetch a booking, e.g. `SL-7KQ2MX` |
+| `POST` | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Create an account (and sign in), sign in, sign out |
+| `POST` | `/api/auth/forgot-password`, `/api/auth/reset-password` | Email a reset link; set a new password with its token |
+| `GET`, `PUT` | `/api/account` | The signed-in buyer's profile; change name and phone |
+| `GET` | `/api/account/bookings` | The signed-in buyer's bookings: `upcoming` and `past` |
 | `POST` | `/api/events/{id}/purchase-requests` | Queue a hold request during peak traffic; returns `202` and a request id |
 | `GET` | `/api/purchase-requests/{requestId}` | Outcome of a queued request: `QUEUED`, `HELD`, `REJECTED` or `FAILED` |
 
@@ -225,7 +276,9 @@ src/main/java/com/seatlock
 ├── exception/     Domain exceptions and the HTTP error mapping
 ├── model/         JPA entities: Venue, Section, Seat, Event, EventSeat, Hold, Booking, PurchaseRequest
 ├── queue/         Artemis queue setup, retry/dead-letter policy, purchase consumer
-├── ratelimit/     Per-IP token bucket filter for checkout endpoints
+├── notification/  Account emails, sent after commit on a background thread
+├── ratelimit/     Per-IP token bucket filter for checkout and sign-in endpoints
+├── security/      Spring Security setup, session sign-in, CSRF rules
 ├── repository/    Spring Data repositories, including the locking queries
 └── service/       Business logic: holds, bookings, expiry, queued checkout
 src/test/java/com/seatlock
@@ -249,7 +302,12 @@ load-test/         Locust load test (500 virtual fans)
 | `seatlock.holds.sweeper-enabled` | `true` | Turn the background sweeper off (tests do this) |
 | `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout (off in tests and load tests) |
 | `seatlock.rate-limit.requests-per-second` | `5` | Checkout requests allowed per second per IP, also the burst size |
-| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm` | Paths the limit applies to |
+| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm`, `/api/auth/*` | Paths the limit applies to |
+| `seatlock.accounts.reset-token-ttl` | `PT30M` | How long a forgot-password link works |
+| `seatlock.accounts.base-url` | `http://localhost:8080` (env `SEATLOCK_BASE_URL`) | Address used for links in emails |
+| `seatlock.accounts.mail-from` | `SeatLock <no-reply@seatlock.local>` (env `SEATLOCK_MAIL_FROM`) | Sender of SeatLock emails |
+| `spring.mail.host`, `port`, `username`, `password` | none (env `SPRING_MAIL_*`) | SMTP server for emails; without a host, emails are skipped |
+| `server.servlet.session.timeout` | `2h` | How long a signed-in session lasts without activity |
 | `seatlock.queue.consumers` | `1-4` | Queue consumer threads (one event's requests are still processed one at a time) |
 | `seatlock.queue.max-delivery-attempts` | `4` | Tries per queued request before it goes to the dead-letter queue |
 | `seatlock.queue.redelivery-delay` | `PT0.5S` | Wait before the first retry |

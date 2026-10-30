@@ -18,6 +18,7 @@ const state = {
     countdownTimer: null,
     typeFilter: "ALL",
     zoom: 1,
+    me: null,                         // the signed-in account, or null for a guest (see account.js)
 };
 
 const customerRef = loadCustomerRef();
@@ -82,11 +83,17 @@ class ApiError extends Error {
     }
 }
 
+function cookie(name) {
+    const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function api(path, options = {}) {
-    const response = await fetch(path, {
-        ...options,
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-    });
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    // Signed-in changes must prove they come from this page: echo the CSRF cookie in a header.
+    const csrf = cookie("XSRF-TOKEN");
+    if (csrf && options.method && options.method !== "GET") headers["X-XSRF-TOKEN"] = csrf;
+    const response = await fetch(path, { ...options, headers });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new ApiError(response.status, body);
     return body;
@@ -162,7 +169,8 @@ async function selectEvent(event) {
     if (state.event?.id === event.id) return;
     state.event = event;
     state.selected.clear();
-    history.replaceState(null, "", `#event-${event.id}`);
+    // Keep the address of a show, but never overwrite a log-in, reset-password or account link.
+    if (!location.hash || location.hash.startsWith("#event-")) history.replaceState(null, "", `#event-${event.id}`);
     renderEvents();
     $("event-view").hidden = false;
     $("event-name").textContent = event.name;
@@ -313,7 +321,8 @@ function setZoom(zoom) {
 // Shrink big venues so the whole map is visible at once; small ones stay at full size.
 function fitSeatMap() {
     const grid = $("seat-map").firstElementChild;
-    if (!grid) return;
+    // A hidden map (behind the log-in or payment page) has no size yet; fit it when it is shown.
+    if (!grid || $("seat-map").clientWidth === 0) return;
     grid.style.zoom = 1;
     setZoom(Math.min(1, $("seat-map").clientWidth / grid.scrollWidth));
 }
@@ -371,6 +380,8 @@ function renderCart() {
         el("div", { class: "actions" },
             el("button", { class: "btn", type: "button", disabled: state.busy, onclick: bookNow }, "Book now"),
             el("p", { class: "muted small" }, "Your seats are kept for 10 minutes while you pay."),
+            state.me ? null : el("p", { class: "muted small" },
+                el("a", { href: "#login" }, "Log in"), " first to keep this booking in My bookings."),
             el("button", { class: "btn secondary", type: "button", disabled: state.busy, onclick: queueSeats,
                 title: "Uses the queued checkout meant for peak traffic" }, "Join the queue instead"),
             el("button", { class: "btn secondary", type: "button", disabled: state.busy,
@@ -475,6 +486,9 @@ function queueSeats() {
 function showPage(page) {
     $("browse-view").hidden = page !== "browse";
     $("checkout-view").hidden = page !== "checkout";
+    $("auth-view").hidden = page !== "auth";
+    $("account-view").hidden = page !== "account";
+    if (page === "browse") fitSeatMap();
     window.scrollTo(0, 0);
 }
 
@@ -518,6 +532,8 @@ function renderConfirmation(booking) {
             el("h2", {}, "Booking confirmed 🎉"),
             el("p", { class: "muted" }, `${event.name} · ${event.venueName} · ${dateTime(event.startsAt)}`),
             ...bookingView(booking),
+            state.me ? el("p", { class: "muted small" }, "This booking is saved under My bookings.") : null,
+            state.me ? el("a", { class: "btn secondary", href: "#bookings" }, "View my bookings") : null,
             el("button", { class: "btn", type: "button", onclick: backToSeatMap }, "Back to shows"))));
 }
 
@@ -601,8 +617,9 @@ async function cancelCheckout() {
 }
 
 // The browser's Back button on the payment page cancels the booking, like the Cancel button.
+// Moving to an account page instead is handled by route() in account.js.
 window.addEventListener("popstate", () => {
-    if (location.hash === "#checkout") return;
+    if (location.hash !== "" && !location.hash.startsWith("#event-")) return;
     if (state.hold) cancelCheckout();
     else if (!$("checkout-view").hidden) backToSeatMap();
 });
@@ -640,4 +657,4 @@ $("lookup").addEventListener("submit", async event => {
     }
 });
 
-loadEvents();
+// Start-up is in account.js, which loads after this file.

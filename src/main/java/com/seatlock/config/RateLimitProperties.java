@@ -19,5 +19,6 @@ import org.springframework.validation.annotation.Validated;
 public record RateLimitProperties(
         @DefaultValue("true") boolean enabled,
         @Min(1) @DefaultValue("5") int requestsPerSecond,
-        @NotEmpty @DefaultValue({"/api/events/*/holds", "/api/events/*/purchase-requests", "/api/holds/*/confirm"}) List<String> paths) {
+        @NotEmpty @DefaultValue({"/api/events/*/holds", "/api/events/*/purchase-requests", "/api/holds/*/confirm",
+                "/api/auth/*"}) List<String> paths) {
 }

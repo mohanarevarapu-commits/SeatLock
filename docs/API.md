@@ -11,8 +11,11 @@ Conventions:
 - `POST` requests that create something return `201 Created` with a `Location` header.
 - Send `Accept-Encoding: gzip` to get compressed responses. A 5,000-seat map drops from about
   391 KB to 42 KB.
-- Customers are identified only by `customerRef`, an opaque token you choose (for example a
+- Customers are identified by `customerRef`, an opaque token you choose (for example a
   checkout session id). Never put personal data in it.
+- Accounts are optional. Without a session every endpoint works as a guest, as before. A
+  signed-in buyer (see [Accounts](#accounts)) sends the session cookie, and their holds and
+  bookings are tied to their account.
 
 ## Contents
 
@@ -21,8 +24,9 @@ Conventions:
 - [Events and seat maps](#events-and-seat-maps)
 - [Holds](#holds)
 - [Bookings](#bookings)
-- [Queued checkout](#queued-checkout)
+- [Accounts](#accounts)
 - [Errors](#errors)
+- [Queued checkout](#queued-checkout)
 - [Rate limiting](#rate-limiting)
 
 ## Typical flow
@@ -298,6 +302,103 @@ they are easy to read out). `404` if not found.
 
 ---
 
+## Accounts
+
+Optional buyer accounts. A signed-in buyer is identified by the `JSESSIONID` session cookie
+(HTTP-only, `SameSite=Lax`, ends after 2 hours without activity).
+
+**CSRF.** Any `POST`, `PUT` or `DELETE` that carries a session cookie must also send the
+`X-XSRF-TOKEN` header with the value of the `XSRF-TOKEN` cookie, which every response sets.
+Requests without a session cookie (guests, scripts, the load test) need nothing.
+
+**Who can use a hold.** A guest hold works for anyone who has its id, as before. A hold placed by
+a signed-in buyer can only be fetched, released or confirmed in that buyer's session; anyone else
+gets `404`, as if it did not exist.
+
+### `POST /api/auth/register`
+
+Creates an account and signs in (sets the session cookie). Sends a welcome email.
+
+| Field | Type | Rules |
+|---|---|---|
+| `name` | string | required, max 100 chars |
+| `email` | string | required, valid email; stored lower-case, unique |
+| `password` | string | required, 8 to 72 chars |
+| `phone` | string | optional; 7 to 20 digits, spaces, brackets and dashes, may start with `+` |
+
+```bash
+curl -s -c jar -b jar -X POST localhost:8080/api/auth/register -H 'Content-Type: application/json' -d '{
+  "name": "Asha Rao", "email": "asha@example.com", "password": "correct-horse-1", "phone": "+44 20 7946 0000"
+}'
+```
+
+`201 Created`, `Location: /api/account`
+
+```json
+{ "id": 2, "name": "Asha Rao", "email": "asha@example.com", "phone": "+44 20 7946 0000",
+  "createdAt": "2026-10-31T09:00:00Z" }
+```
+
+`409 Email already registered` if the email has an account, in any letter case.
+
+### `POST /api/auth/login`
+
+`{"email": "...", "password": "..."}`. Signs in and returns the profile (as above). The email is
+not case-sensitive. A wrong password and an unknown email both get the same
+`401 Sign-in failed`, so the endpoint does not reveal who is registered.
+
+### `POST /api/auth/logout`
+
+Ends the session. `204 No Content`.
+
+### `POST /api/auth/forgot-password`
+
+`{"email": "..."}`. Always `202 Accepted`, whether or not the email has an account. If it has
+one, SeatLock emails a link `<base-url>/#reset/<token>` that works once, for 30 minutes. Asking
+again cancels the previous link.
+
+### `POST /api/auth/reset-password`
+
+`{"token": "<from the link>", "password": "<new, 8 to 72 chars>"}`. `204 No Content`, and a
+"password changed" email is sent. `400 Invalid request` if the link is unknown, already used or
+expired.
+
+### `GET /api/account`
+
+The signed-in buyer's profile. `401 Sign-in required` without a session.
+
+### `PUT /api/account`
+
+`{"name": "...", "phone": "..."}` (an empty phone removes it). Returns the updated profile.
+The email cannot be changed.
+
+### `GET /api/account/bookings`
+
+The signed-in buyer's bookings, split by whether the show has started:
+
+```json
+{
+  "upcoming": [
+    {
+      "reference": "SL-B9W6GV",
+      "eventId": 9,
+      "eventName": "The Glass Garden: An Opera in Three Acts",
+      "venueName": "Royal Crescent Opera House",
+      "venueCity": "Example City",
+      "startsAt": "2026-12-05T13:30:00Z",
+      "totalCents": 30000,
+      "bookedAt": "2026-10-31T09:00:00Z",
+      "seats": [
+        { "eventSeatId": 18001, "section": "Stalls", "label": "A1", "priceCents": 15000 }
+      ]
+    }
+  ],
+  "past": []
+}
+```
+
+`upcoming` is soonest show first; `past` is most recent first. Guest bookings never appear here.
+
 ## Errors
 
 Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem response with
@@ -316,8 +417,12 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem res
 | Status | `title` | Meaning | What to do |
 |---|---|---|---|
 | `400` | `Bad Request` | Body failed validation | Fix the request |
-| `400` | `Invalid request` | Too many seats, or the event has started | Fix the request |
-| `404` | `Not found` | Unknown venue, event, hold, seat or booking | Check the id |
+| `400` | `Invalid request` | Too many seats, the event has started, or a reset link is invalid or expired | Fix the request; ask for a new reset link |
+| `401` | `Sign-in failed` | Wrong email or password (same answer for both) | Check and retry |
+| `401` | `Sign-in required` | `/api/account/**` without a session | Sign in first |
+| `403` | `Forbidden` | A request with a session cookie but no valid `X-XSRF-TOKEN` header | Send the CSRF header (see [Accounts](#accounts)) |
+| `404` | `Not found` | Unknown venue, event, hold, seat or booking, or another buyer's hold | Check the id |
+| `409` | `Email already registered` | Sign-up with an email that has an account (any letter case) | Sign in, or reset the password |
 | `409` | `Seats unavailable` | Someone else holds or bought a seat; see `eventSeatIds` | Pick other seats |
 | `409` | `Hold not active` | Hold already confirmed, released or expired | Fetch the hold to see its status |
 | `409` | `Concurrent update` | Another request changed the same seats at the same moment | Retry |
@@ -376,7 +481,7 @@ curl -s -X POST localhost:8080/api/events/1/purchase-requests -H 'Content-Type: 
 ## Rate limiting
 
 The checkout endpoints, `POST /api/events/{id}/holds`, `POST /api/events/{id}/purchase-requests`
-and `POST /api/holds/{id}/confirm`, together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
+and `POST /api/holds/{id}/confirm`, and the sign-in endpoints `POST /api/auth/*`, together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
 token bucket that refills continuously, so one request is allowed again every 200 ms. Other
 endpoints, including the seat map, are not limited.
 

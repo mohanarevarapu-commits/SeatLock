@@ -11,23 +11,33 @@ import static com.seatlock.model.MapZone.SOUTH_WEST;
 import static com.seatlock.model.MapZone.WEST;
 
 import com.seatlock.dto.CreateEventRequest;
+import com.seatlock.dto.CreateHoldRequest;
 import com.seatlock.dto.CreateVenueRequest;
 import com.seatlock.dto.CreateVenueRequest.SectionRequest;
+import com.seatlock.dto.HoldResponse;
+import com.seatlock.dto.SeatMapResponse.SeatView;
 import com.seatlock.dto.VenueResponse;
+import com.seatlock.model.Account;
 import com.seatlock.model.MapZone;
 import com.seatlock.model.VenueType;
+import com.seatlock.repository.AccountRepository;
+import com.seatlock.service.BookingService;
 import com.seatlock.service.EventService;
+import com.seatlock.service.HoldService;
 import com.seatlock.service.VenueService;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,14 +51,28 @@ public class DemoDataLoader implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DemoDataLoader.class);
 
+    /** Demo sign-in, shown in the README. The address is on example.com, which can never receive mail. */
+    static final String DEMO_EMAIL = "demo@example.com";
+    static final String DEMO_PASSWORD = "seatlock-demo";
+
     private final VenueService venueService;
     private final EventService eventService;
+    private final AccountRepository accountRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final HoldService holdService;
+    private final BookingService bookingService;
     private final Clock clock;
     private int events;
 
-    public DemoDataLoader(VenueService venueService, EventService eventService, Clock clock) {
+    public DemoDataLoader(VenueService venueService, EventService eventService, AccountRepository accountRepository,
+                          PasswordEncoder passwordEncoder, HoldService holdService, BookingService bookingService,
+                          Clock clock) {
         this.venueService = venueService;
         this.eventService = eventService;
+        this.accountRepository = accountRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.holdService = holdService;
+        this.bookingService = bookingService;
         this.clock = clock;
     }
 
@@ -181,7 +205,26 @@ public class DemoDataLoader implements ApplicationRunner {
                 section("Booths", NORTH_EAST, 4, 6, 6_000)));
         event(velvet, "Late Night Jazz Sessions", 8, 22, 0);
 
-        log.info("Seeded {} demo venues and {} events", venueService.listVenues().size(), events);
+        seedDemoAccount();
+        log.info("Seeded {} demo venues, {} events and the demo account {}", venueService.listVenues().size(), events,
+                DEMO_EMAIL);
+    }
+
+    /** A demo buyer with two bookings, so My bookings has something to show. Created directly, so no email is sent. */
+    private void seedDemoAccount() {
+        Account demo = accountRepository.save(new Account(DEMO_EMAIL, passwordEncoder.encode(DEMO_PASSWORD),
+                "Demo Fan", "+44 20 7946 0000", clock.instant()));
+        book(demo, 9, 2);   // The Glass Garden, Royal Crescent Opera House
+        book(demo, 16, 4);  // Late Night Jazz Sessions, The Velvet Room
+    }
+
+    private void book(Account account, long eventId, int seats) {
+        Set<Long> seatIds = eventService.getSeatMap(eventId).sections().get(0).seats().stream()
+                .limit(seats)
+                .map(SeatView::eventSeatId)
+                .collect(Collectors.toSet());
+        HoldResponse hold = holdService.createHold(eventId, new CreateHoldRequest("demo", seatIds), account.getId());
+        bookingService.confirmHold(hold.id(), account.getId());
     }
 
     private VenueResponse venue(String name, String city, VenueType type, MapZone stageZone, String stageLabel,

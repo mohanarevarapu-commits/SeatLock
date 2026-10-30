@@ -9,10 +9,71 @@ the steps.
 
 | Version | Date | Theme | Automated tests | Commits |
 |---|---|---|---|---|
+| [0.5.0](#050--2026-10-31) | 2026-10-31 | Buyer accounts: sign-up, log-in, forgot password by email, profile menu, My bookings | 119 | tag `v0.5.0` |
 | [0.4.0](#040--2026-10-31) | 2026-10-31 | Web client, venue layouts, Book now checkout, test scenarios | 99 | tag `v0.4.0` |
 | [0.3.0](#030--2026-10-30) | 2026-10-30 | Traffic spikes: rate limiting, queued checkout, load testing | 86 | `085ece7`, `36a7108` |
 | [0.2.0](#020--2026-10-30) | 2026-10-30 | API documentation and Swagger UI | 73 | `1bd34eb` |
 | [0.1.0](#010--2026-10-30) | 2026-10-30 | Core reservation backend | 73 | `7950665` |
+
+---
+
+## 0.5.0 — 2026-10-31
+
+Optional buyer accounts. Phase 1 of 2: watchlist, "booking opens" alerts, show reminders and
+"selling fast" emails come in 0.6.0.
+
+### Added
+
+- **Accounts** (Spring Security): sign up with name, email, optional phone and password; log in
+  and out; the session cookie keeps the buyer signed in (HTTP-only, `SameSite=Lax`, 2 hours idle).
+  - Passwords stored only as BCrypt hashes; emails stored lower-case, so sign-in is
+    case-insensitive; one account per email.
+  - Wrong password and unknown email get the same answer, so sign-in does not reveal who is
+    registered.
+  - CSRF protection for any change that carries a session cookie; guests and API scripts are
+    unaffected.
+  - Sign-in endpoints share the per-IP rate limit (5 per second) with checkout.
+- **Forgot password by email:** a one-time link valid for 30 minutes; a newer link cancels the
+  older one; only a SHA-256 hash of the token is stored; the answer is the same whether or not the
+  email has an account. A "password changed" email follows every reset.
+- **Email over SMTP** (Spring Mail): welcome, reset link and password changed. Sent after the
+  database commit on a background thread. The server is set with `SPRING_MAIL_*` environment
+  variables (Gmail app passwords supported); without one, emails are skipped with a warning and
+  their content is never logged.
+- **My bookings:** a signed-in buyer's bookings, split into **Active** (shows to come) and
+  **Past**, with show, venue, date, seats, total and reference. `GET /api/account/bookings`.
+- **Profile:** change name and phone (`PUT /api/account`); the email is fixed.
+- **Hold ownership:** a hold placed while signed in (directly or through the queue) can only be
+  viewed, released or confirmed by that buyer; others get `404`. Guest holds work as before.
+- **Web client:** **Log in** / **Sign up** in the top-right corner; once signed in, the corner
+  shows the buyer's initials and first name with a menu (name, email, phone, **My bookings**,
+  **Profile**, **Log out**). Log-in, sign-up, forgot-password and reset-password pages; My bookings
+  page with Active/Past tabs and the profile form. Links such as `#login`, `#bookings` and the
+  emailed `#reset/<token>` open the right page directly.
+- **Demo account** in the `demo` profile: demo@example.com / seatlock-demo, with two bookings.
+
+### Changed
+
+- The "no personal data" rule is replaced: account holders' name, email and optional phone are
+  stored; guests stay anonymous; card details are never stored.
+- Holds have an optional `account_id`; the queued checkout message carries it too.
+- Spring Security now sends `X-Frame-Options: DENY`, so SeatLock cannot be framed by other sites.
+- Version 0.5.0 in `pom.xml` and the OpenAPI spec.
+
+### Tested
+
+| What | How | Result |
+|---|---|---|
+| Full test suite | `./mvnw clean test` | 119 tests, 0 failures (20 new) |
+| Accounts over HTTP | `AccountIntegrationTest` (16), sessions and CSRF sent as a browser does | Sign-up, duplicate email, validation, same answer for wrong password and unknown email, log-out, `401` without a session, forged request `403`, profile edit, My bookings split into upcoming and past, hold ownership, guest holds unchanged |
+| Password reset emails | GreenMail in-memory SMTP server | Welcome, reset-link and password-changed emails arrive; link works once, expires after 30 minutes, newest link only; no email for unknown addresses |
+| Queued checkout while signed in | `QueuedCheckoutIntegrationTest` | The hold belongs to the buyer's account |
+| Entity rules | `AccountRulesTest` (3) | Email normalised; token expiry and single use; guest vs account hold access |
+| Existing tests | All 99 from 0.4.0 | Still pass; `HoldControllerTest` now runs with SeatLock's real security rules |
+| Running app | `curl` | Demo login returns the profile; My bookings returns the 2 seeded bookings; a signed-in change without the CSRF header gets `403`; a guest hold still gets `201` |
+| Web client | Headless Chrome through a test-only copy of the page | Log-in page, wrong-password message, profile menu, My bookings with both bookings, sign-up of a new buyer, forgot-password confirmation |
+| No mail server set | Running app without `SPRING_MAIL_HOST` | Emails skipped with a warning naming only the subject; app keeps working |
+| Bugs found and fixed | During the checks above | Opening `#login` (or an emailed reset link) showed the show list, because selecting a show overwrote the address; the seat map zoom showed "NaN%" after logging in, because it was measured while hidden; the email tests could count a previous test's late email, so each test now checks only its own address |
 
 ---
 
@@ -197,6 +258,10 @@ Commit `7950665`.
 
 These are known and documented; none is a bug in the current scope.
 
+- **Real email delivery is checked by hand.** The tests use GreenMail; sending through a real
+  SMTP account needs the `SPRING_MAIL_*` settings.
+- **Accounts:** no email verification at sign-up, no account deletion, no social sign-in; other
+  sessions stay signed in after a password reset until they time out.
 - **Single instance.** Seat locking is in the database and works across instances, but the rate
   limit and the embedded broker are per instance. Several instances need a shared limiter (for
   example Redis) and a standalone broker (`spring.artemis.mode=native`).

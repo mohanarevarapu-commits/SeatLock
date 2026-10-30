@@ -46,9 +46,14 @@ public class PurchaseRequestService {
 
     /** Queues the request and returns at once. Nothing is written to the database here. */
     public PurchaseRequestResponse submit(Long eventId, CreateHoldRequest request) {
+        return submit(eventId, request, null);
+    }
+
+    /** @param accountId the signed-in buyer, or null for a guest; the hold is placed for them */
+    public PurchaseRequestResponse submit(Long eventId, CreateHoldRequest request, Long accountId) {
         String requestId = UUID.randomUUID().toString();
         PurchaseRequestMessage message = new PurchaseRequestMessage(requestId, eventId, request.customerRef(),
-                request.eventSeatIds(), clock.instant());
+                request.eventSeatIds(), clock.instant(), accountId);
         jmsTemplate.convertAndSend(TicketQueueConfig.PURCHASE_QUEUE, message, jms -> {
             // One message group per event: requests for an event are processed in order, one at a time.
             jms.setStringProperty(TicketQueueConfig.GROUP_ID_PROPERTY, "event-" + eventId);
@@ -78,7 +83,7 @@ public class PurchaseRequestService {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 HoldResponse hold = holdService.createHold(message.eventId(),
-                        new CreateHoldRequest(message.customerRef(), message.eventSeatIds()));
+                        new CreateHoldRequest(message.customerRef(), message.eventSeatIds()), message.accountId());
                 purchaseRequestRepository.save(PurchaseRequest.held(message.requestId(), message.eventId(),
                         message.customerRef(), hold.id(), clock.instant()));
             });

@@ -50,8 +50,15 @@ public class HoldService {
         this.clock = clock;
     }
 
+    /** A guest hold, not tied to any account. */
     @Transactional
     public HoldResponse createHold(Long eventId, CreateHoldRequest request) {
+        return createHold(eventId, request, null);
+    }
+
+    /** @param accountId the signed-in buyer, or null for a guest */
+    @Transactional
+    public HoldResponse createHold(Long eventId, CreateHoldRequest request, Long accountId) {
         Instant now = clock.instant();
         Event event = eventService.findEvent(eventId);
         if (event.hasStarted(now)) {
@@ -75,7 +82,7 @@ public class HoldService {
         }
 
         Instant expiresAt = earliest(now.plus(properties.ttl()), event.getStartsAt());
-        Hold hold = holdRepository.save(new Hold(event, request.customerRef(), seatIds, now, expiresAt));
+        Hold hold = holdRepository.save(new Hold(event, request.customerRef(), accountId, seatIds, now, expiresAt));
         for (EventSeat seat : seats) {
             seat.hold(hold.getId(), expiresAt, now);
         }
@@ -84,14 +91,28 @@ public class HoldService {
 
     @Transactional(readOnly = true)
     public HoldResponse getHold(Long holdId) {
-        return toResponse(findHold(holdId));
+        return getHold(holdId, null);
+    }
+
+    /** A signed-in buyer's hold is visible only to them; others get 404, as if it did not exist. */
+    @Transactional(readOnly = true)
+    public HoldResponse getHold(Long holdId, Long accountId) {
+        Hold hold = findHold(holdId);
+        requireAccess(hold, accountId);
+        return toResponse(hold);
+    }
+
+    @Transactional
+    public HoldResponse releaseHold(Long holdId) {
+        return releaseHold(holdId, null);
     }
 
     /** Gives the seats back before the hold would have expired on its own. */
     @Transactional
-    public HoldResponse releaseHold(Long holdId) {
+    public HoldResponse releaseHold(Long holdId, Long accountId) {
         Hold hold = holdRepository.findByIdForUpdate(holdId)
                 .orElseThrow(() -> new NotFoundException("Hold", holdId));
+        requireAccess(hold, accountId);
         if (hold.getStatus() != HoldStatus.ACTIVE) {
             throw new HoldNotActiveException(holdId, hold.getStatus());
         }
@@ -108,6 +129,12 @@ public class HoldService {
         long total = lines.stream().mapToLong(SeatLine::priceCents).sum();
         return new HoldResponse(hold.getId(), hold.getEvent().getId(), hold.getCustomerRef(), hold.getStatus(),
                 hold.getExpiresAt(), total, lines);
+    }
+
+    static void requireAccess(Hold hold, Long accountId) {
+        if (!hold.isAccessibleBy(accountId)) {
+            throw new NotFoundException("Hold", hold.getId());
+        }
     }
 
     private Hold findHold(Long holdId) {

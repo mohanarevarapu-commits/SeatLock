@@ -1,6 +1,8 @@
 package com.seatlock.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doCallRealMethod;
@@ -12,9 +14,12 @@ import com.seatlock.dto.CreateHoldRequest;
 import com.seatlock.dto.EventResponse;
 import com.seatlock.dto.HoldResponse;
 import com.seatlock.dto.PurchaseRequestResponse;
+import com.seatlock.exception.NotFoundException;
+import com.seatlock.model.Account;
 import com.seatlock.model.HoldStatus;
 import com.seatlock.model.PurchaseRequestStatus;
 import com.seatlock.queue.PurchaseRequestMessage;
+import com.seatlock.repository.AccountRepository;
 import com.seatlock.support.IntegrationTest;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -36,6 +41,9 @@ class QueuedCheckoutIntegrationTest extends IntegrationTest {
 
     @MockitoSpyBean
     private HoldService holdService;
+
+    @Autowired
+    private AccountRepository accountRepository;
 
     @Test
     void queuedRequestEndsUpHoldingTheSeatsForTenMinutes() throws Exception {
@@ -84,7 +92,7 @@ class QueuedCheckoutIntegrationTest extends IntegrationTest {
 
         assertThat(done.status()).isEqualTo(PurchaseRequestStatus.REJECTED);
         assertThat(done.reason()).isEqualTo("Event 999999 not found");
-        verify(holdService, times(1)).createHold(anyLong(), argThat(r -> "lost-buyer".equals(r.customerRef())));
+        verify(holdService, times(1)).createHold(anyLong(), argThat(r -> "lost-buyer".equals(r.customerRef())), any());
     }
 
     @Test
@@ -92,20 +100,20 @@ class QueuedCheckoutIntegrationTest extends IntegrationTest {
         EventResponse event = createEvent();
         CannotAcquireLockException lockTimeout = new CannotAcquireLockException("lock wait timeout");
         doThrow(lockTimeout).doThrow(lockTimeout).doCallRealMethod()
-                .when(holdService).createHold(anyLong(), argThat(r -> "flaky-buyer".equals(r.customerRef())));
+                .when(holdService).createHold(anyLong(), argThat(r -> "flaky-buyer".equals(r.customerRef())), any());
 
         PurchaseRequestResponse queued = purchaseRequestService.submit(event.id(),
                 new CreateHoldRequest("flaky-buyer", Set.of(seatIds(event.id()).get(0))));
 
         assertThat(awaitOutcome(queued.requestId()).status()).isEqualTo(PurchaseRequestStatus.HELD);
-        verify(holdService, times(3)).createHold(anyLong(), argThat(r -> "flaky-buyer".equals(r.customerRef())));
+        verify(holdService, times(3)).createHold(anyLong(), argThat(r -> "flaky-buyer".equals(r.customerRef())), any());
     }
 
     @Test
     void persistentFailureEndsOnTheDeadLetterQueueAsFailed() throws Exception {
         EventResponse event = createEvent();
         doThrow(new CannotAcquireLockException("lock wait timeout"))
-                .when(holdService).createHold(anyLong(), argThat(r -> "doomed-buyer".equals(r.customerRef())));
+                .when(holdService).createHold(anyLong(), argThat(r -> "doomed-buyer".equals(r.customerRef())), any());
 
         PurchaseRequestResponse queued = purchaseRequestService.submit(event.id(),
                 new CreateHoldRequest("doomed-buyer", Set.of(seatIds(event.id()).get(0))));
@@ -114,7 +122,7 @@ class QueuedCheckoutIntegrationTest extends IntegrationTest {
         assertThat(done.status()).isEqualTo(PurchaseRequestStatus.FAILED);
         assertThat(done.reason()).contains("after several retries");
         // max-delivery-attempts = 4: the first delivery plus 3 retries.
-        verify(holdService, times(4)).createHold(anyLong(), argThat(r -> "doomed-buyer".equals(r.customerRef())));
+        verify(holdService, times(4)).createHold(anyLong(), argThat(r -> "doomed-buyer".equals(r.customerRef())), any());
         assertThat(eventService.getSeatMap(event.id()).availableCount()).isEqualTo(10);
     }
 
@@ -122,13 +130,28 @@ class QueuedCheckoutIntegrationTest extends IntegrationTest {
     void redeliveredMessageIsNotProcessedTwice() {
         EventResponse event = createEvent();
         PurchaseRequestMessage message = new PurchaseRequestMessage(UUID.randomUUID().toString(), event.id(),
-                "twice-buyer", Set.of(seatIds(event.id()).get(0)), START);
+                "twice-buyer", Set.of(seatIds(event.id()).get(0)), START, null);
 
         purchaseRequestService.process(message);
         purchaseRequestService.process(message);
 
         assertThat(purchaseRequestService.getStatus(message.requestId()).status()).isEqualTo(PurchaseRequestStatus.HELD);
-        verify(holdService, times(1)).createHold(anyLong(), argThat(r -> "twice-buyer".equals(r.customerRef())));
+        verify(holdService, times(1)).createHold(anyLong(), argThat(r -> "twice-buyer".equals(r.customerRef())), any());
+    }
+
+    @Test
+    void signedInBuyersQueuedRequestIsHeldForTheirAccount() throws Exception {
+        EventResponse event = createEvent();
+        Account buyer = accountRepository.save(new Account("queue-" + UUID.randomUUID() + "@example.com", "unused",
+                "Queue Fan", null, START));
+
+        PurchaseRequestResponse queued = purchaseRequestService.submit(event.id(),
+                new CreateHoldRequest("queued-member", Set.of(seatIds(event.id()).get(0))), buyer.getId());
+        PurchaseRequestResponse done = awaitOutcome(queued.requestId());
+
+        assertThat(done.status()).isEqualTo(PurchaseRequestStatus.HELD);
+        assertThat(holdService.getHold(done.holdId(), buyer.getId()).status()).isEqualTo(HoldStatus.ACTIVE);
+        assertThatThrownBy(() -> holdService.getHold(done.holdId())).isInstanceOf(NotFoundException.class);
     }
 
     private PurchaseRequestResponse awaitOutcome(String requestId) throws InterruptedException {

@@ -1,6 +1,13 @@
 spring:
   datasource:
     url: jdbc:h2:mem:seatlock-test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;LOCK_TIMEOUT=10000;DB_CLOSE_DELAY=-1
+  mail:
+    # GreenMail, the in-memory SMTP server the account tests start, listens here.
+    host: localhost
+    port: 3025
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
 
 seatlock:
   holds:
@@ -11,3 +18,5 @@ seatlock:
   queue:
     # Short retry delays so the dead-letter tests finish quickly.
     redelivery-delay: PT0.05S
+  accounts:
+    base-url: http://seatlock.test

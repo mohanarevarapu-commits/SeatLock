@@ -18,20 +18,22 @@ profile, controllable clock, race harness) see the
   - [Venue layouts](#venue-layouts)
   - [Seats and booking references](#seats-and-booking-references)
   - [Web client delivery](#web-client-delivery)
+  - [Accounts, sign-in and email](#accounts-sign-in-and-email)
 - [Manual scenarios: web client](#manual-scenarios-web-client)
+- [Manual scenarios: accounts](#manual-scenarios-accounts)
 - [Load test scenario](#load-test-scenario)
 - [Not covered yet](#not-covered-yet)
 
 ## Running the tests
 
 ```bash
-./mvnw clean test                                                      # all 99 tests
+./mvnw clean test                                                      # all 119 tests
 ./mvnw test -Dtest=ConcurrentHoldIntegrationTest                       # one class
 ./mvnw test -Dtest=HoldServiceIntegrationTest#cannotHoldASeatSomeoneElseHolds   # one scenario
 ```
 
-The tests need no database, broker or network: they use in-memory H2 and the embedded Artemis
-broker. Stop a running app before `./mvnw clean test`, because `clean` deletes the classes it runs from.
+The tests need no database, broker, mail account or network: they use in-memory H2, the embedded
+Artemis broker, and GreenMail, an in-memory SMTP server that receives the account emails. Stop a running app before `./mvnw clean test`, because `clean` deletes the classes it runs from.
 
 | Test class | Kind | Tests |
 |---|---|---|
@@ -39,18 +41,20 @@ broker. Stop a running app before `./mvnw clean test`, because `clean` deletes t
 | `model/HoldTest` | Unit | 3 |
 | `model/SeatTest` | Unit | 11 |
 | `model/VenueLayoutTest` | Unit | 9 |
+| `model/AccountRulesTest` | Unit | 3 |
 | `ratelimit/RateLimitingFilterTest` | Unit | 6 |
 | `service/BookingReferenceGeneratorTest` | Unit | 22 |
 | `controller/HoldControllerTest` | HTTP slice (`@WebMvcTest`, mocked services) | 8 |
+| `controller/AccountIntegrationTest` | Full app over HTTP, GreenMail | 16 |
 | `controller/ReservationFlowIntegrationTest` | Full app over HTTP | 2 |
 | `controller/WebClientIntegrationTest` | Full app over HTTP | 2 |
 | `service/HoldServiceIntegrationTest` | Full app, H2 | 9 |
 | `service/BookingServiceIntegrationTest` | Full app, H2 | 6 |
 | `service/HoldExpiryServiceIntegrationTest` | Full app, H2 | 3 |
 | `service/ConcurrentHoldIntegrationTest` | Full app, H2, 200 threads | 3 |
-| `service/QueuedCheckoutIntegrationTest` | Full app, H2, embedded broker | 6 |
+| `service/QueuedCheckoutIntegrationTest` | Full app, H2, embedded broker | 7 |
 | `service/VenueLayoutIntegrationTest` | Full app, H2 | 2 |
-| **Total** | | **99** |
+| **Total** | | **119** |
 
 Parameterised and repeated tests count once per run, so `SeatTest` has 3 methods but 11 runs, and
 `BookingReferenceGeneratorTest` has 3 methods but 22 runs.
@@ -203,7 +207,36 @@ Venue type, stage position and section zones, from `VenueLayoutTest` (unit) and
 | Scenario | Expected | Test |
 |---|---|---|
 | A browser opens `/` | It gets the web client page | `rootServesTheWebClient` |
-| The page loads its script and styles | `app.js` and `app.css` are served | `scriptsAndStylesAreServed` |
+| The page loads its scripts and styles | `app.js`, `account.js` and `app.css` are served | `scriptsAndStylesAreServed` |
+
+### Accounts, sign-in and email
+
+`AccountIntegrationTest` drives the full app over HTTP, sending the session cookie and CSRF token
+the way a browser does. Emails go to GreenMail, an in-memory SMTP server, and each test checks
+only the emails sent to its own address. `AccountRulesTest` covers the entity rules.
+
+| Scenario | Expected | Test |
+|---|---|---|
+| A buyer signs up with name, email, phone and password | `201`; signed in straight away; the profile shows name, email and phone but never the password hash; a "Welcome to SeatLock" email arrives | `signUpCreatesTheAccountSignsInAndSendsAWelcomeEmail` |
+| Signing up again with the same email in capitals | `409 Email already registered` | `emailIsRegisteredOnlyOnceWhateverItsCase` |
+| Password shorter than 8 characters, or a phone that is not a number | `400` | `signUpValidatesPasswordLengthAndPhone` |
+| Wrong password; unknown email | Both get the same `401` "Email or password is incorrect." | `wrongPasswordAndUnknownEmailGetTheSameAnswer` |
+| Log in with the email in capitals, then log out | Logged in; after logout the profile answers `401` | `signInIsCaseInsensitiveAndSignOutEndsTheSession` |
+| Profile or My bookings without a session | `401 Sign-in required` | `accountEndpointsNeedASignIn` |
+| A signed-in change without the CSRF header (a forged request) | `403`; nothing changes | `signedInChangesNeedTheCsrfToken` |
+| Change name, clear the phone | Saved; phone removed | `buyerCanChangeNameAndPhone` |
+| Forgot password, then follow the emailed link | Reset email arrives with a link; new password works, old one does not; "password changed" email arrives | `forgottenPasswordIsResetThroughTheEmailedLink` |
+| Forgot password for an email with no account | Same `202`; no email sent | `unknownEmailGetsTheSameAnswerAndNoEmail` |
+| The same reset link used twice | Second use `400` "invalid, already used or expired" | `resetLinkWorksOnlyOnce` |
+| A reset link used after 30 minutes | `400`; the old password still works | `resetLinkExpiresAfterThirtyMinutes` |
+| Two reset links asked for in a row | Only the newest works | `onlyTheNewestResetLinkWorks` |
+| A buyer books; a guest books at the same show; then the show happens | My bookings shows only the buyer's booking, first under upcoming (with show, venue and seats), then under past | `myBookingsListsOnlyTheBuyersOwnBookingsSplitIntoUpcomingAndPast` |
+| A signed-in buyer's hold, tried by a guest and by another buyer | `404` for both (view, confirm, release); the owner can view and confirm it | `aSignedInBuyersHoldCanOnlyBeUsedByThatBuyer` |
+| A guest hold | Still works without any account | `guestHoldsStillWorkWithoutAnAccount` |
+| A signed-in buyer uses the queued checkout | The hold belongs to their account; a guest cannot see it | `QueuedCheckoutIntegrationTest.signedInBuyersQueuedRequestIsHeldForTheirAccount` |
+| Email with spaces and capitals | Stored trimmed and lower-case | `AccountRulesTest.emailIsStoredTrimmedAndLowerCase` |
+| A reset token | Works until it expires or is used, not after | `AccountRulesTest.resetTokenWorksUntilItExpiresOrIsUsed` |
+| Guest hold vs account hold | A guest hold is open to anyone with its id; an account hold only to its owner | `AccountRulesTest.guestHoldIsOpenToAnyoneButAnAccountHoldOnlyToItsOwner` |
 
 ## Manual scenarios: web client
 
@@ -243,6 +276,31 @@ http://localhost:8080:
 | 25 | Phone width | Open the page on a phone or a narrow window | One column, no sideways page scroll; the seat map zooms to fit |
 | 26 | Dark and light mode | Switch the system appearance | Page colours follow it; sold seats stay distinguishable |
 
+## Manual scenarios: accounts
+
+Start the app with demo data. The demo account is **demo@example.com** / **seatlock-demo**. To
+check real emails, set the `SPRING_MAIL_*` variables first (see the README).
+
+| # | Scenario | Steps | Expected |
+|---|---|---|---|
+| A1 | Logged-out corner | Open the page | **Log in** and **Sign up** in the top-right corner |
+| A2 | Log in | **Log in**, enter the demo account | "Welcome back, Demo."; the corner shows **DF Demo** and you return to the show you were on |
+| A3 | Wrong password | Log in with a wrong password | "Email or password is incorrect." under the form; still logged out |
+| A4 | Profile menu | Click **DF Demo** | Menu with name, email and phone, then **My bookings**, **Profile**, **Log out**; closes on Escape or a click elsewhere |
+| A5 | My bookings | Menu → **My bookings** | **Active (2)** with the opera and jazz bookings (show, venue, date, seats, total, reference); **Past (0)** |
+| A6 | Edit profile | Menu → **Profile**, change the name, **Save changes** | "Profile saved."; new initials and name in the corner |
+| A7 | Book while signed in | Pick seats, **Book now**, **Pay** | Confirmation says the booking is saved under My bookings; **View my bookings** lists it |
+| A8 | Book as a guest | Log out, book seats | Works as before; the cart suggests logging in first; the booking is not in anyone's My bookings |
+| A9 | Sign up | **Sign up** with name, email, phone, password | Signed in straight away; welcome email arrives (with SMTP set up) |
+| A10 | Duplicate sign-up | Sign up again with the same email | "An account with this email already exists…" |
+| A11 | Forgot password | **Log in** → **Forgot password?**, enter your email | "Check your email"; the reset email arrives within a minute (with SMTP set up) |
+| A12 | Reset password | Open the emailed link | "Choose a new password" page; after saving: "Password changed. Log in with your new password."; "password changed" email arrives |
+| A13 | Reused or old link | Open the same link again, or after 30 minutes | "This reset link is invalid, already used or expired." |
+| A14 | Log out | Menu → **Log out** | "You're logged out."; corner shows **Log in** / **Sign up**; My bookings asks you to log in |
+| A15 | My bookings needs a session | Logged out, open `http://localhost:8080/#bookings` | Log-in page; after logging in, My bookings opens |
+| A16 | Leaving payment for log-in | During payment, click **Log in** | Seats released ("Booking cancelled"), log-in page shown |
+| A17 | Phone width | Narrow window, logged in | Corner shows only the initials; menu and My bookings fit the screen |
+
 ## Load test scenario
 
 `load-test/locustfile.py` simulates 500 concert fans against a running app for 2 minutes:
@@ -268,6 +326,10 @@ sold all 5,000 seats with 0 failures and 0 seats sold twice (see the README for 
 ## Not covered yet
 
 - **The web client has no automated browser tests.** Its scenarios above are checked by hand.
+- **Real SMTP delivery** is not part of the test suite (GreenMail stands in for the mail server).
+  Check it by hand with scenarios A9, A11 and A12 once `SPRING_MAIL_*` is set.
+- **Sessions after a password reset:** other sessions of that account stay signed in until they
+  time out (2 hours idle).
 - **MySQL** is not exercised by the test suite; the tests run on H2 in MySQL mode. Run the app
   with the `mysql` profile to check against a real MySQL 8.
 - **Several app instances** sharing one database: the locking is database-side so it should hold,

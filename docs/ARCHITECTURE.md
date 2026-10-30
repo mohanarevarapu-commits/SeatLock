@@ -11,8 +11,9 @@ flowchart LR
     browser --> limiter
     client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
-        web[static web client<br/>index.html, app.js]
-        limiter[RateLimitingFilter<br/>5 checkout req/s per IP] --> controller
+        web[static web client<br/>index.html, app.js, account.js]
+        limiter[RateLimitingFilter<br/>5 checkout and sign-in req/s per IP] --> security
+        security[Spring Security<br/>session sign-in, CSRF,<br/>/api/account needs sign-in] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
         service --> repository[repository<br/>queries and row locks]
         service --> model[model<br/>entities and domain rules]
@@ -27,8 +28,10 @@ flowchart LR
         queue -- after 4 attempts --> dlq
         dlq --> consumer
         consumer --> service
+        service -- after commit --> mailer[AccountMailer<br/>background thread]
     end
     limiter -. over limit .-> r429([429 Too Many Requests])
+    mailer --> smtp[(SMTP server)]
     repository --> db[(H2 or MySQL)]
 ```
 
@@ -36,8 +39,20 @@ The web client in `src/main/resources/static` is plain HTML, CSS and JavaScript 
 Spring Boot at `/`. It has no server-side logic: it calls the same public REST API as any other
 client, so every seat it shows and every hold it places goes through the same checks.
 
-A request passes the rate limiter (checkout paths only), then a thin controller, then a service
-that owns the transaction. There are two ways to place a hold:
+A request passes the rate limiter (checkout and sign-in paths only), then Spring Security, then a
+thin controller, then a service that owns the transaction.
+
+**Accounts** are optional. Spring Security identifies a signed-in buyer by the session cookie and
+leaves everything open to guests except `/api/account/**`. A request is CSRF-checked only when it
+carries a session cookie, because only then could a forged request act as someone; the web client
+echoes the `XSRF-TOKEN` cookie in an `X-XSRF-TOKEN` header. Controllers pass the signed-in
+account id (or null for a guest) to the services, which tie new holds to it and refuse anyone else
+on that hold with `404`.
+
+**Emails** (welcome, reset link, password changed) are published as events inside the service's
+transaction and sent by `AccountMailer` only after it commits, on a background thread. Nothing is
+sent for a change that rolled back, a slow mail server never delays a response, and response
+times do not reveal whether an email has an account. There are two ways to place a hold:
 
 - **Direct** (`POST /api/events/{id}/holds`): the service locks the seats and answers `201` or
   `409` in the same request.
@@ -54,7 +69,9 @@ that owns the transaction. There are two ways to place a hold:
 | DTO | `dto` | Request and response records. Entities never leave a service (`open-in-view` is off). |
 | Errors | `exception` | Domain exceptions, mapped to RFC 9457 responses in `GlobalExceptionHandler`. |
 | Queue | `queue` | Artemis queue names, retry and dead-letter policy, JSON messages, and `PurchaseRequestConsumer`. |
-| Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout paths; returns `429` before any controller runs. |
+| Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout and sign-in paths; returns `429` before any controller runs. |
+| Security | `security` | `SecurityConfig` (which paths need sign-in, CSRF rule, BCrypt), `SessionAuthenticator` (sign in and out of the HTTP session), `AccountPrincipal`. |
+| Notification | `notification` | Account email events, `AccountMailer` (after commit, in the background) and `EmailSender` (SMTP; skips with a warning when no server is set). |
 
 ## Data model
 
@@ -81,6 +98,8 @@ erDiagram
     HOLD ||--o| BOOKING : "confirmed into"
     EVENT ||--o{ PURCHASE_REQUEST : "queued for"
     PURCHASE_REQUEST |o--o| HOLD : "resulted in"
+    ACCOUNT |o--o{ HOLD : "places (null for guests)"
+    ACCOUNT ||--o{ PASSWORD_RESET_TOKEN : "forgot-password links"
 
     EVENT_SEAT {
         long id PK
@@ -92,6 +111,7 @@ erDiagram
     HOLD {
         long id PK
         string customer_ref
+        long account_id "null for a guest hold"
         string status "ACTIVE, CONFIRMED, RELEASED, EXPIRED"
         instant expires_at
     }
@@ -99,6 +119,19 @@ erDiagram
         long id PK
         string reference "SL-XXXXXX"
         long total_cents
+    }
+    ACCOUNT {
+        long id PK
+        string email "unique, lower-case"
+        string password_hash "BCrypt"
+        string full_name
+        string phone "optional"
+    }
+    PASSWORD_RESET_TOKEN {
+        long id PK
+        string token_hash "SHA-256 of the emailed token"
+        instant expires_at "30 minutes"
+        instant used_at "set when used or replaced"
     }
     PURCHASE_REQUEST {
         string id PK "request id from the 202 response"
@@ -118,6 +151,12 @@ erDiagram
   and the only row that gets locked when seats change hands.
 - **Hold** is a time-limited claim on a set of event seats. It stores the seat ids it covers.
 - **Booking** is the confirmed result of exactly one hold (`hold_id` is unique).
+- **Account** is an optional registered buyer: the only personal data SeatLock stores. A hold
+  records the account that placed it; bookings reach their account through their hold, which is
+  how **My bookings** finds them.
+- **PasswordResetToken** is one forgot-password link. Only a hash of the token is stored, so a
+  copy of the database cannot be used to reset passwords. A token works once, until it expires,
+  and is cancelled when a newer link is requested.
 - **PurchaseRequest** is the outcome of one queued request. It is written only after the consumer
   processes the request (never at submit time), and its id doubles as the idempotency key.
 
@@ -284,7 +323,8 @@ Every scenario, with the test that checks it, is listed in [TESTING.md](TESTING.
 | Kind | Where | How |
 |---|---|---|
 | Entity rules | `src/test/.../model` | Plain unit tests, no Spring |
-| HTTP mapping | `controller/HoldControllerTest` | `@WebMvcTest` with mocked services |
+| HTTP mapping | `controller/HoldControllerTest` | `@WebMvcTest` with mocked services and SeatLock's real security rules |
+| Accounts and email | `controller/AccountIntegrationTest` | Full app over MockMvc with sessions and CSRF as a browser sends them; emails land in GreenMail, an in-memory SMTP server |
 | End-to-end flow | `controller/ReservationFlowIntegrationTest` | Full app over MockMvc |
 | Services and races | `src/test/.../service` | Full context on H2, extending `support/IntegrationTest` |
 | Queued checkout | `service/QueuedCheckoutIntegrationTest` | Real embedded broker; a Mockito spy on `HoldService` injects failures to prove retries and the dead-letter path |

@@ -47,9 +47,16 @@ public class BookingService {
 
     @Transactional
     public BookingResponse confirmHold(Long holdId) {
+        return confirmHold(holdId, null);
+    }
+
+    /** @param accountId the signed-in buyer, or null for a guest; must match the hold's account */
+    @Transactional
+    public BookingResponse confirmHold(Long holdId, Long accountId) {
         Instant now = clock.instant();
         Hold hold = holdRepository.findByIdForUpdate(holdId)
                 .orElseThrow(() -> new NotFoundException("Hold", holdId));
+        HoldService.requireAccess(hold, accountId);
         if (hold.getStatus() != HoldStatus.ACTIVE) {
             throw new HoldNotActiveException(holdId, hold.getStatus());
         }

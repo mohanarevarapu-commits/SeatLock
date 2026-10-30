@@ -8,12 +8,13 @@
 </head>
 <body>
 <header class="topbar">
-    <div class="brand">
+    <a class="brand" href="#">
         <span class="logo" aria-hidden="true">◆</span>
         <span>SeatLock</span>
-    </div>
+    </a>
     <nav class="links">
         <a href="/swagger-ui.html" target="_blank" rel="noopener">API docs</a>
+        <div id="account-area" class="account-area"></div>
     </nav>
 </header>
 
@@ -65,10 +66,13 @@
     </div>
 
     <section id="checkout-view" aria-label="Checkout" hidden></section>
+    <section id="auth-view" aria-label="Sign in" hidden></section>
+    <section id="account-view" aria-label="My account" hidden></section>
 </main>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="app.js"></script>
+<script src="account.js"></script>
 </body>
 </html>

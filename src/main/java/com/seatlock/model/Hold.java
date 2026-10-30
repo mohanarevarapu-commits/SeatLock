@@ -23,7 +23,9 @@ import java.util.TreeSet;
  * A temporary reservation of one or more event seats while the customer checks out.
  */
 @Entity
-@Table(name = "holds", indexes = @Index(name = "idx_holds_status_expires", columnList = "status, expires_at"))
+@Table(name = "holds", indexes = {
+        @Index(name = "idx_holds_status_expires", columnList = "status, expires_at"),
+        @Index(name = "idx_holds_account", columnList = "account_id")})
 public class Hold {
 
     @Id
@@ -37,6 +39,10 @@ public class Hold {
     /** Opaque reference supplied by the caller (e.g. a session id). Never personal data. */
     @Column(name = "customer_ref", nullable = false, length = 64)
     private String customerRef;
+
+    /** The signed-in buyer's account, or null for a guest hold. */
+    @Column(name = "account_id")
+    private Long accountId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -57,11 +63,25 @@ public class Hold {
     }
 
     public Hold(Event event, String customerRef, Set<Long> eventSeatIds, Instant createdAt, Instant expiresAt) {
+        this(event, customerRef, null, eventSeatIds, createdAt, expiresAt);
+    }
+
+    public Hold(Event event, String customerRef, Long accountId, Set<Long> eventSeatIds, Instant createdAt,
+                Instant expiresAt) {
         this.event = event;
         this.customerRef = customerRef;
+        this.accountId = accountId;
         this.eventSeatIds = new TreeSet<>(eventSeatIds);
         this.createdAt = createdAt;
         this.expiresAt = expiresAt;
+    }
+
+    /**
+     * A guest hold can be viewed, released and confirmed by whoever has its id (as before accounts
+     * existed); a signed-in buyer's hold only by that buyer.
+     */
+    public boolean isAccessibleBy(Long accountId) {
+        return this.accountId == null || this.accountId.equals(accountId);
     }
 
     public boolean isExpiredAt(Instant now) {
@@ -97,6 +117,10 @@ public class Hold {
 
     public String getCustomerRef() {
         return customerRef;
+    }
+
+    public Long getAccountId() {
+        return accountId;
     }
 
     public HoldStatus getStatus() {

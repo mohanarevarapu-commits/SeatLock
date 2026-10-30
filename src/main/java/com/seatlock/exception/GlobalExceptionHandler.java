@@ -4,6 +4,7 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -35,6 +36,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(HoldNotActiveException.class)
     ProblemDetail handleHoldNotActive(HoldNotActiveException ex) {
         return problem(HttpStatus.CONFLICT, "Hold not active", ex.getMessage());
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    ProblemDetail handleEmailTaken(EmailAlreadyRegisteredException ex) {
+        return problem(HttpStatus.CONFLICT, "Email already registered", ex.getMessage());
+    }
+
+    /** Same answer for an unknown email and a wrong password, so sign-in does not reveal who is registered. */
+    @ExceptionHandler(AuthenticationException.class)
+    ProblemDetail handleSignInFailed(AuthenticationException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "Sign-in failed", "Email or password is incorrect.");
     }
 
     @ExceptionHandler(HoldExpiredException.class)

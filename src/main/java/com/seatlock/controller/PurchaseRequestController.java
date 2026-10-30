@@ -2,6 +2,7 @@ package com.seatlock.controller;
 
 import com.seatlock.dto.CreateHoldRequest;
 import com.seatlock.dto.PurchaseRequestResponse;
+import com.seatlock.security.AccountPrincipal;
 import com.seatlock.service.PurchaseRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -9,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,8 +33,9 @@ public class PurchaseRequestController {
     @ApiResponse(responseCode = "202")
     @PostMapping("/events/{id}/purchase-requests")
     public ResponseEntity<PurchaseRequestResponse> submit(@PathVariable Long id,
-                                                          @Valid @RequestBody CreateHoldRequest request) {
-        PurchaseRequestResponse queued = purchaseRequestService.submit(id, request);
+                                                          @Valid @RequestBody CreateHoldRequest request,
+                                                          @AuthenticationPrincipal AccountPrincipal buyer) {
+        PurchaseRequestResponse queued = purchaseRequestService.submit(id, request, AccountPrincipal.idOf(buyer));
         return ResponseEntity.accepted()
                 .location(URI.create("/api/purchase-requests/" + queued.requestId()))
                 .body(queued);

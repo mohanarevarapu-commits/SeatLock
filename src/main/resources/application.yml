@@ -17,7 +17,25 @@ spring:
     embedded:
       queues: ticket-purchase-queue,DLQ.ticket-purchase-queue
 
+  mail:
+    # The mail server is set with environment variables, never committed:
+    # SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD (see the README).
+    # Without SPRING_MAIL_HOST, emails are skipped with a warning.
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+
 server:
+  servlet:
+    session:
+      # Signed-in buyers are kept by this cookie; Lax keeps it off cross-site form posts.
+      cookie:
+        same-site: lax
+        http-only: true
+      timeout: 2h
   # A 5,000-seat map is ~390 KB of JSON; gzip cuts it to a small fraction for clients that accept it.
   compression:
     enabled: true
@@ -38,6 +56,14 @@ seatlock:
       - /api/events/*/holds
       - /api/events/*/purchase-requests
       - /api/holds/*/confirm
+      # Sign-in, sign-up and password resets: slows down password guessing and email flooding.
+      - /api/auth/*
+  accounts:
+    reset-token-ttl: PT30M
+    # Address of the web client, used for links in emails.
+    base-url: ${SEATLOCK_BASE_URL:http://localhost:8080}
+    # Sender of SeatLock emails. With Gmail this must be the Gmail address you sign in with.
+    mail-from: ${SEATLOCK_MAIL_FROM:SeatLock <no-reply@seatlock.local>}
   # Queued checkout: retries with growing delays, then the dead-letter queue.
   queue:
     consumers: 1-4
