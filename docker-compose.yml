@@ -1,0 +1,12 @@
+# Local MySQL for running SeatLock with the "mysql" profile.
+# Dummy credentials for local development only.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: seatlock
+      MYSQL_USER: seatlock
+      MYSQL_PASSWORD: seatlock
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"

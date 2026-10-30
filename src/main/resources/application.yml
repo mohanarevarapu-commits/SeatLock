@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: seatlock
+  datasource:
+    # In-memory H2 in MySQL mode for local development; see the "mysql" profile below.
+    url: jdbc:h2:mem:seatlock;MODE=MySQL;DATABASE_TO_LOWER=TRUE;LOCK_TIMEOUT=10000;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+
+seatlock:
+  holds:
+    ttl: PT10M
+    max-seats-per-hold: 8
+    sweep-batch-size: 200
+    sweep-interval: PT30S
+    sweeper-enabled: true
+
+---
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: ${SEATLOCK_DB_URL:jdbc:mysql://localhost:3306/seatlock}
+    username: ${SEATLOCK_DB_USER:seatlock}
+    password: ${SEATLOCK_DB_PASSWORD:seatlock}
