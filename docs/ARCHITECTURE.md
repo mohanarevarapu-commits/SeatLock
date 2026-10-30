@@ -7,16 +7,36 @@ endpoint details see [API.md](API.md); for setup see the [README](../README.md).
 
 ```mermaid
 flowchart LR
-    client([HTTP client]) --> controller
+    client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
+        limiter[RateLimitingFilter<br/>5 checkout req/s per IP] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
         service --> repository[repository<br/>queries and row locks]
         service --> model[model<br/>entities and domain rules]
         repository --> model
         scheduler[HoldExpiryScheduler<br/>every 30 s] --> service
+        subgraph broker [Embedded Artemis broker]
+            queue[[ticket-purchase-queue]]
+            dlq[[DLQ.ticket-purchase-queue]]
+        end
+        service -- queued checkout --> queue
+        queue --> consumer[PurchaseRequestConsumer]
+        queue -- after 4 attempts --> dlq
+        dlq --> consumer
+        consumer --> service
     end
+    limiter -. over limit .-> r429([429 Too Many Requests])
     repository --> db[(H2 or MySQL)]
 ```
+
+A request passes the rate limiter (checkout paths only), then a thin controller, then a service
+that owns the transaction. There are two ways to place a hold:
+
+- **Direct** (`POST /api/events/{id}/holds`): the service locks the seats and answers `201` or
+  `409` in the same request.
+- **Queued** (`POST /api/events/{id}/purchase-requests`): the service only puts a message on the
+  queue and answers `202`. The consumer later calls the same `HoldService.createHold`, so both
+  paths share one set of locking rules.
 
 | Layer | Package | Responsibility |
 |---|---|---|
@@ -41,6 +61,8 @@ erDiagram
     EVENT ||--o{ HOLD : has
     HOLD }o--o{ EVENT_SEAT : "hold_seats"
     HOLD ||--o| BOOKING : "confirmed into"
+    EVENT ||--o{ PURCHASE_REQUEST : "queued for"
+    PURCHASE_REQUEST |o--o| HOLD : "resulted in"
 
     EVENT_SEAT {
         long id PK
@@ -60,6 +82,13 @@ erDiagram
         string reference "SL-XXXXXX"
         long total_cents
     }
+    PURCHASE_REQUEST {
+        string id PK "request id from the 202 response"
+        long event_id
+        string status "HELD, REJECTED, FAILED"
+        long hold_id "set when HELD"
+        string reason "why REJECTED or FAILED"
+    }
 ```
 
 - **Venue → Section → Seat** is the physical layout. It is shared by every event at the venue.
@@ -67,12 +96,14 @@ erDiagram
   and the only row that gets locked when seats change hands.
 - **Hold** is a time-limited claim on a set of event seats. It stores the seat ids it covers.
 - **Booking** is the confirmed result of exactly one hold (`hold_id` is unique).
+- **PurchaseRequest** is the outcome of one queued request. It is written only after the consumer
+  processes the request (never at submit time), and its id doubles as the idempotency key.
 
 ## Hold lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ACTIVE: POST /events/{id}/holds
+    [*] --> ACTIVE: POST /events/{id}/holds,<br/>or a queued request is processed
     ACTIVE --> CONFIRMED: POST /holds/{id}/confirm
     ACTIVE --> RELEASED: DELETE /holds/{id}
     ACTIVE --> EXPIRED: TTL or event start passes,<br/>then the sweeper runs
@@ -90,23 +121,45 @@ The matching seat states:
 | `RELEASED` or `EXPIRED` | `AVAILABLE`, but only if they are still held by *this* hold |
 
 A hold's expiry is `min(now + ttl, event.startsAt)`. Every terminal state is final;
-`Hold.transitionTo` throws if you try to leave one.
+`Hold.transitionTo` throws if you try to leave one. For a queued request the 10 minutes start when
+the consumer places the hold, not when the request was queued.
+
+## Purchase request lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED: POST /events/{id}/purchase-requests (202)
+    QUEUED --> HELD: hold placed, holdId returned
+    QUEUED --> REJECTED: seat taken, unknown event,<br/>too many seats (not retried)
+    QUEUED --> FAILED: technical error on all 4 attempts,<br/>message moved to the DLQ
+    HELD --> [*]: client confirms or releases the hold
+    REJECTED --> [*]
+    FAILED --> [*]
+```
+
+`QUEUED` is never stored; it is what `GET /api/purchase-requests/{id}` reports while no outcome
+row exists yet.
 
 ## Concurrency design
 
 ### The rules
 
-1. **Lock seats only through `EventSeatRepository.findAllByIdForUpdate`.** It runs
+1. **Every reservation write runs in a transaction and locks first.** Creating, confirming,
+   releasing and expiring holds all run inside a service-level transaction (`@Transactional` or
+   `TransactionTemplate`) and take their row locks before changing anything. Locks are held until
+   commit. The default isolation level is kept: correctness comes from the row locks, which hold
+   under H2's READ COMMITTED and MySQL's REPEATABLE READ.
+2. **Lock seats only through `EventSeatRepository.findAllByIdForUpdate`.** It runs
    `SELECT ... FOR UPDATE ... ORDER BY id`, so every transaction locks seats in ascending id order.
    Two requests with overlapping seats queue on the lowest shared id instead of deadlocking.
-2. **Lock the hold before its seats.** Confirm, release and expiry call
+3. **Lock the hold before its seats.** Confirm, release and expiry call
    `HoldRepository.findByIdForUpdate` first. Creating a hold never locks another hold. So the
    global lock order is always *hold, then seats*.
-3. **Check state only after the lock.** `isAvailableAt`, `isHeldBy` and the hold's status are read
+4. **Check state only after the lock.** `isAvailableAt`, `isHeldBy` and the hold's status are read
    from the locked rows, never from an earlier unlocked read.
-4. **`@Version` on `EventSeat` is a backstop.** If a stale write ever got through, it fails with
+5. **`@Version` on `EventSeat` is a backstop.** If a stale write ever got through, it fails with
    `409 Concurrent update` instead of overwriting.
-5. **Read time from the injected `Clock`,** never `Instant.now()`, so tests can move time.
+6. **Read time from the injected `Clock`,** never `Instant.now()`, so tests can move time.
 
 ### Two buyers, one seat
 
@@ -210,8 +263,13 @@ Profiles: default uses in-memory H2 in MySQL mode; `mysql` points at MySQL 8 (se
 | HTTP mapping | `controller/HoldControllerTest` | `@WebMvcTest` with mocked services |
 | End-to-end flow | `controller/ReservationFlowIntegrationTest` | Full app over MockMvc |
 | Services and races | `src/test/.../service` | Full context on H2, extending `support/IntegrationTest` |
+| Queued checkout | `service/QueuedCheckoutIntegrationTest` | Real embedded broker; a Mockito spy on `HoldService` injects failures to prove retries and the dead-letter path |
+| Rate limiter | `ratelimit/RateLimitingFilterTest` | Plain unit test driving the filter with a `MutableClock`, so refills are exact |
+| Load | `load-test/locustfile.py` | Locust, 500 virtual fans over HTTP against a running app; not part of `./mvnw test` |
 
-Integration tests are **not** `@Transactional`, because the race tests need real commits across
+Integration tests run with the `test` profile, which turns off the expiry sweeper and the rate
+limiter (the test clock is frozen, so buckets would never refill) and shortens queue retry delays
+to 50 ms. They are **not** `@Transactional`, because the race tests need real commits across
 threads. Each test creates its own venue and event instead of cleaning up. Time is controlled with
 `MutableClock.advance(...)`, and since the sweeper is disabled in tests, they call
 `HoldExpiryService.expireLapsedHolds()` directly.
