@@ -12,6 +12,7 @@ only by an opaque `customerRef` token, never by personal data.
 
 - Java 17, Spring Boot 3.5 (Web, Data JPA, Validation)
 - H2 (in-memory, MySQL mode) for development and tests; MySQL 8 for a real database
+- springdoc-openapi for the OpenAPI spec and Swagger UI
 - JUnit 5, AssertJ, Mockito, MockMvc
 - Maven (via the included `./mvnw` wrapper, so no local Maven install is needed)
 
@@ -36,6 +37,11 @@ Connection settings can be overridden with `SEATLOCK_DB_URL`, `SEATLOCK_DB_USER`
 `SEATLOCK_DB_PASSWORD`.
 
 ## API
+
+While the app is running, interactive docs are at
+[`http://localhost:8080/swagger-ui.html`](http://localhost:8080/swagger-ui.html). See
+[docs/API.md](docs/API.md) for request and response examples, and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the data model and locking design.
 
 | Method | Path | Description |
 |---|---|---|
