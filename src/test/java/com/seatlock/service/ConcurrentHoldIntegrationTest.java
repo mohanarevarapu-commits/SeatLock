@@ -7,10 +7,14 @@ import com.seatlock.dto.EventResponse;
 import com.seatlock.dto.HoldResponse;
 import com.seatlock.dto.SeatMapResponse;
 import com.seatlock.exception.SeatUnavailableException;
+import com.seatlock.model.HoldStatus;
 import com.seatlock.model.SeatStatus;
 import com.seatlock.support.IntegrationTest;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -19,6 +23,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntFunction;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -29,10 +35,13 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
  */
 class ConcurrentHoldIntegrationTest extends IntegrationTest {
 
-    private static final int THREADS = 16;
+    private static final int THREADS = 200;
 
     @Autowired
     private HoldService holdService;
+
+    @Autowired
+    private BookingService bookingService;
 
     @Test
     void exactlyOneCustomerWinsTheSameSeats() throws Exception {
@@ -74,6 +83,57 @@ class ConcurrentHoldIntegrationTest extends IntegrationTest {
                 .filter(status -> status == SeatStatus.HELD)
                 .count();
         assertThat(heldOnMap).isEqualTo(heldByWinners.size());
+    }
+
+    @Test
+    void mixedHoldConfirmAndReleaseTrafficSellsEachSeatAtMostOnce() throws Exception {
+        EventResponse event = createEvent(10, 10);
+        List<Long> hotSeats = seatIds(event.id()).subList(0, 40);
+
+        // Every racer fights for 3 of the same 40 seats, retrying when beaten, then confirms,
+        // releases or keeps its hold. Releases free seats mid-race for others to grab, so
+        // create, confirm and release all lock the same rows at the same time.
+        List<Outcome> outcomes = race(i -> () -> {
+            Random random = new Random(i);
+            for (int attempt = 0; ; attempt++) {
+                List<Long> shuffled = new ArrayList<>(hotSeats);
+                Collections.shuffle(shuffled, random);
+                try {
+                    HoldResponse hold = holdService.createHold(event.id(),
+                            new CreateHoldRequest("racer-" + i, Set.copyOf(shuffled.subList(0, 3))));
+                    switch (i % 3) {
+                        case 0 -> bookingService.confirmHold(hold.id());
+                        case 1 -> holdService.releaseHold(hold.id());
+                        default -> { }
+                    }
+                    return holdService.getHold(hold.id());
+                } catch (SeatUnavailableException | ObjectOptimisticLockingFailureException ex) {
+                    if (attempt == 4) {
+                        throw ex;
+                    }
+                }
+            }
+        });
+
+        assertThat(outcomes).allMatch(o -> o.won() || o.rejectedCleanly());
+
+        List<Long> booked = seatsOfHoldsWithStatus(outcomes, HoldStatus.CONFIRMED);
+        List<Long> held = seatsOfHoldsWithStatus(outcomes, HoldStatus.ACTIVE);
+        assertThat(booked).isNotEmpty();
+        assertThat(Stream.concat(booked.stream(), held.stream()).toList()).doesNotHaveDuplicates();
+
+        Map<SeatStatus, Long> onMap = eventService.getSeatMap(event.id()).sections().stream()
+                .flatMap(s -> s.seats().stream())
+                .collect(Collectors.groupingBy(SeatMapResponse.SeatView::status, Collectors.counting()));
+        assertThat(onMap.getOrDefault(SeatStatus.BOOKED, 0L)).isEqualTo(booked.size());
+        assertThat(onMap.getOrDefault(SeatStatus.HELD, 0L)).isEqualTo(held.size());
+    }
+
+    private static List<Long> seatsOfHoldsWithStatus(List<Outcome> outcomes, HoldStatus status) {
+        return outcomes.stream()
+                .filter(o -> o.won() && o.hold().status() == status)
+                .flatMap(o -> o.hold().seats().stream().map(s -> s.eventSeatId()))
+                .toList();
     }
 
     private List<Outcome> race(IntFunction<Callable<HoldResponse>> attempt) throws Exception {

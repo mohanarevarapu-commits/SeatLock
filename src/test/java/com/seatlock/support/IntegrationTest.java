@@ -48,8 +48,13 @@ public abstract class IntegrationTest {
 
     /** Creates a small venue (one 2x5 section at $50) and an event 30 days from now. */
     protected EventResponse createEvent() {
+        return createEvent(2, 5);
+    }
+
+    /** Creates a venue with one rows x seatsPerRow section at $50 and an event 30 days from now. */
+    protected EventResponse createEvent(int rows, int seatsPerRow) {
         VenueResponse venue = venueService.createVenue(new CreateVenueRequest("Test Hall", "Testville",
-                List.of(new SectionRequest("Main", 2, 5, 5_000))));
+                List.of(new SectionRequest("Main", rows, seatsPerRow, 5_000))));
         return eventService.createEvent(new CreateEventRequest(venue.id(), "Test Show",
                 clock.instant().plus(Duration.ofDays(30))));
     }

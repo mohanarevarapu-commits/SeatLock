@@ -10,6 +10,18 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: update
+  artemis:
+    # Broker runs inside the app (in memory, so queued messages do not survive a restart).
+    # For production set mode: native plus broker-url, user and password for a standalone broker.
+    mode: embedded
+    embedded:
+      queues: ticket-purchase-queue,DLQ.ticket-purchase-queue
+
+server:
+  # A 5,000-seat map is ~390 KB of JSON; gzip cuts it to a small fraction for clients that accept it.
+  compression:
+    enabled: true
+    mime-types: application/json,application/problem+json
 
 seatlock:
   holds:
@@ -18,6 +30,20 @@ seatlock:
     sweep-batch-size: 200
     sweep-interval: PT30S
     sweeper-enabled: true
+  # Token bucket per client IP on the checkout endpoints; over the limit gets 429 + Retry-After.
+  rate-limit:
+    enabled: true
+    requests-per-second: 5
+    paths:
+      - /api/events/*/holds
+      - /api/events/*/purchase-requests
+      - /api/holds/*/confirm
+  # Queued checkout: retries with growing delays, then the dead-letter queue.
+  queue:
+    consumers: 1-4
+    max-delivery-attempts: 4
+    redelivery-delay: PT0.5S
+    redelivery-multiplier: 2.0
 
 ---
 spring:

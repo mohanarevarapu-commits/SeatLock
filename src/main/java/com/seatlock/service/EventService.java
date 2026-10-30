@@ -14,6 +14,7 @@ import com.seatlock.model.Section;
 import com.seatlock.model.Venue;
 import com.seatlock.repository.EventRepository;
 import com.seatlock.repository.EventSeatRepository;
+import com.seatlock.repository.SeatMapRow;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -70,17 +71,21 @@ public class EventService {
         findEvent(eventId);
         Instant now = clock.instant();
 
-        Map<Section, List<SeatView>> bySection = new LinkedHashMap<>();
-        for (EventSeat eventSeat : eventSeatRepository.findSeatMap(eventId)) {
-            Seat seat = eventSeat.getSeat();
-            bySection.computeIfAbsent(seat.getSection(), s -> new ArrayList<>())
-                    .add(new SeatView(eventSeat.getId(), seat.getLabel(), seat.getRowLabel(),
-                            seat.getNumber(), eventSeat.effectiveStatus(now)));
+        Map<Long, SeatMapRow> sectionInfo = new LinkedHashMap<>();
+        Map<Long, List<SeatView>> bySection = new LinkedHashMap<>();
+        for (SeatMapRow row : eventSeatRepository.findSeatMap(eventId)) {
+            sectionInfo.putIfAbsent(row.sectionId(), row);
+            bySection.computeIfAbsent(row.sectionId(), id -> new ArrayList<>())
+                    .add(new SeatView(row.eventSeatId(), row.rowLabel() + row.number(), row.rowLabel(),
+                            row.number(), EventSeat.effectiveStatus(row.status(), row.heldUntil(), now)));
         }
 
         List<SectionMap> sections = bySection.entrySet().stream()
-                .map(e -> new SectionMap(e.getKey().getId(), e.getKey().getName(), e.getKey().getPriceCents(),
-                        countAvailable(e.getValue()), e.getValue()))
+                .map(e -> {
+                    SeatMapRow info = sectionInfo.get(e.getKey());
+                    return new SectionMap(e.getKey(), info.sectionName(), info.priceCents(),
+                            countAvailable(e.getValue()), e.getValue());
+                })
                 .toList();
         int available = sections.stream().mapToInt(SectionMap::availableCount).sum();
         return new SeatMapResponse(eventId, available, sections);

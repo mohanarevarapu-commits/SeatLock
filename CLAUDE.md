@@ -1,15 +1,28 @@
 # CLAUDE.md
 
-SeatLock is a Spring Boot 3.5 / Java 17 ticket reservation backend. See README.md for the API
-and the concurrency design.
+SeatLock is a high-concurrency concert ticketing backend: buyers hold seats for a limited time,
+then confirm them into bookings, and no seat is ever held or sold twice. See README.md for the
+API and docs/ARCHITECTURE.md for the concurrency design.
+
+## Tech stack
+
+- Java 17
+- Spring Boot 3.5 (Web, Data JPA, Validation)
+- MySQL 8 as the real database (`mysql` profile, `docker compose up -d`); in-memory H2 in MySQL
+  mode for local runs and tests
+- ActiveMQ Artemis via Spring JMS for the queued checkout (embedded broker by default)
+- JUnit 5 for tests, with AssertJ, Mockito and MockMvc; Locust (Python) for load tests
 
 ## Commands
 
-- Build and run all tests: `./mvnw clean test`
+- Build and run all tests: `./mvnw clean test` (the wrapper form of `mvn clean test`)
 - Run one test class: `./mvnw test -Dtest=HoldServiceIntegrationTest`
 - Run one test method: `./mvnw test -Dtest=HoldServiceIntegrationTest#cannotHoldASeatSomeoneElseHolds`
 - Run the app with demo data: `./mvnw spring-boot:run -Dspring-boot.run.profiles=demo`
 - Package: `./mvnw clean package`
+- Load test: start the app with `-Dspring-boot.run.arguments=--seatlock.rate-limit.enabled=false`
+  (all load-test traffic comes from one IP), then `locust --config load-test/locust.conf`
+  (`pip install -r load-test/requirements.txt` first; 500 users for 2 minutes)
 
 Always use `./mvnw`; Maven is not installed globally. Tests use in-memory H2 and need no
 external services.
@@ -24,9 +37,23 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
 - Domain rules live on the entities (`EventSeat.hold/book/releaseIfHeldBy`, `Hold.confirm/...`).
   Services orchestrate locking and call those methods.
 - Domain errors are exceptions in `exception/`, mapped to HTTP status in `GlobalExceptionHandler`.
+- Queued checkout: `PurchaseRequestService.submit` only sends to the embedded Artemis queue;
+  `queue/PurchaseRequestConsumer` processes it via `HoldService`. Only `REJECTED` outcomes for
+  business exceptions are final; any other exception must propagate so the broker retries and
+  dead-letters it.
+- `ratelimit/RateLimitingFilter` limits checkout requests per client IP (`seatlock.rate-limit.*`).
+  It is off in the `test` profile because the test clock is frozen; `RateLimitingFilterTest` covers it.
 
 ## Concurrency rules (do not break these)
 
+- Every database write that touches seat reservations (creating, confirming, releasing or
+  expiring a hold) must run inside a service-level transaction (`@Transactional` or
+  `TransactionTemplate`) and must take row locks before changing anything. Locks are held until
+  commit, so a lock taken outside a transaction protects nothing.
+- Transaction isolation: keep the default level. Correctness comes from the `FOR UPDATE` row
+  locks below, which hold under H2's READ COMMITTED and MySQL's REPEATABLE READ. Never lower
+  isolation (e.g. READ_UNCOMMITTED), and don't replace the locks with a higher isolation level
+  instead.
 - Lock `EventSeat` rows only through `EventSeatRepository.findAllByIdForUpdate`, which orders by id.
 - When a path touches an existing hold, lock the hold (`HoldRepository.findByIdForUpdate`) before its seats.
 - Check seat state only after acquiring the lock, never before.

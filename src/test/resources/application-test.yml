@@ -5,3 +5,9 @@ spring:
 seatlock:
   holds:
     sweeper-enabled: false
+  rate-limit:
+    # The test clock is frozen, so buckets would never refill; RateLimitingFilterTest covers the filter.
+    enabled: false
+  queue:
+    # Short retry delays so the dead-letter tests finish quickly.
+    redelivery-delay: PT0.05S

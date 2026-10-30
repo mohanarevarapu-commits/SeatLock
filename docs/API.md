@@ -9,6 +9,8 @@ Conventions:
 - Money is integer **cents** (`priceCents`, `totalCents`). `5000` = 50.00.
 - Times are ISO-8601 instants in **UTC**, e.g. `2026-12-31T20:00:00Z`.
 - `POST` requests that create something return `201 Created` with a `Location` header.
+- Send `Accept-Encoding: gzip` to get compressed responses. A 5,000-seat map drops from about
+  391 KB to 42 KB.
 - Customers are identified only by `customerRef`, an opaque token you choose (for example a
   checkout session id). Never put personal data in it.
 
@@ -19,7 +21,9 @@ Conventions:
 - [Events and seat maps](#events-and-seat-maps)
 - [Holds](#holds)
 - [Bookings](#bookings)
+- [Queued checkout](#queued-checkout)
 - [Errors](#errors)
+- [Rate limiting](#rate-limiting)
 
 ## Typical flow
 
@@ -207,6 +211,7 @@ Other failures:
 | `400` | Validation failed, more than 8 seats, or the event has already started |
 | `404` | Unknown event, or a seat id that does not belong to this event |
 | `409` | A seat is taken (above), or a concurrent update; retry the request |
+| `429` | More than 5 checkout requests per second from your IP; see [Rate limiting](#rate-limiting) |
 
 ### `GET /api/holds/{id}`
 
@@ -243,6 +248,7 @@ payment itself.
 | `404` | Unknown hold |
 | `409` | Hold is not active (already confirmed, released or expired) |
 | `410` | Hold's time ran out before you confirmed; place a new hold |
+| `429` | More than 5 checkout requests per second from your IP; see [Rate limiting](#rate-limiting) |
 
 ---
 
@@ -280,3 +286,76 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem res
 | `409` | `Hold not active` | Hold already confirmed, released or expired | Fetch the hold to see its status |
 | `409` | `Concurrent update` | Another request changed the same seats at the same moment | Retry |
 | `410` | `Hold expired` | Confirm arrived after the hold's time ran out | Place a new hold |
+| `429` | `Too many requests` | Over the checkout rate limit | Wait for `Retry-After` seconds, then retry |
+
+## Queued checkout
+
+An asynchronous alternative to `POST /api/events/{id}/holds` for peak traffic. The request is
+queued and the client polls for the outcome.
+
+### `POST /api/events/{id}/purchase-requests`
+
+Same body and rules as placing a hold. Returns `202 Accepted` immediately; nothing is checked
+against the database yet, so an unknown event or a taken seat shows up in the outcome, not here.
+
+```bash
+curl -s -X POST localhost:8080/api/events/1/purchase-requests -H 'Content-Type: application/json' -d '{
+  "customerRef": "fan-a", "eventSeatIds": [1, 2]
+}'
+```
+
+`202 Accepted`, `Location: /api/purchase-requests/f682085c-b199-4d26-b250-2da6ca88b009`
+
+```json
+{
+  "requestId": "f682085c-b199-4d26-b250-2da6ca88b009",
+  "eventId": 1,
+  "status": "QUEUED",
+  "holdId": null,
+  "reason": null,
+  "processedAt": null
+}
+```
+
+### `GET /api/purchase-requests/{requestId}`
+
+| `status` | Meaning | Next step |
+|---|---|---|
+| `QUEUED` | Not processed yet (also returned for an unknown id) | Poll again shortly |
+| `HELD` | Seats are held; `holdId` is set | Confirm with `POST /api/holds/{holdId}/confirm` within 10 minutes |
+| `REJECTED` | Refused; `reason` says why, e.g. `Seats no longer available: [2]` | Pick other seats |
+| `FAILED` | Kept failing for a technical reason and was given up after retries | Submit a new request |
+
+```json
+{
+  "requestId": "f682085c-b199-4d26-b250-2da6ca88b009",
+  "eventId": 1,
+  "status": "HELD",
+  "holdId": 1,
+  "reason": null,
+  "processedAt": "2026-10-30T12:15:49.617902Z"
+}
+```
+
+## Rate limiting
+
+The checkout endpoints, `POST /api/events/{id}/holds`, `POST /api/events/{id}/purchase-requests`
+and `POST /api/holds/{id}/confirm`, together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
+token bucket that refills continuously, so one request is allowed again every 200 ms. Other
+endpoints, including the seat map, are not limited.
+
+Over the limit, the request is rejected before it touches the database:
+
+```
+HTTP/1.1 429
+Retry-After: 1
+Content-Type: application/problem+json
+
+{"type":"about:blank","title":"Too many requests","status":429,"detail":"Too many checkout requests from your address. The limit is 5 requests per second; retry after 1 second.","instance":"/api/events/1/holds"}
+```
+
+Wait the number of seconds in `Retry-After` before retrying.
+
+Configured under `seatlock.rate-limit` (`enabled`, `requests-per-second`, `paths`). Behind a proxy
+or load balancer, set `server.forward-headers-strategy=native` so the limit applies to the real
+client IP rather than the proxy's.

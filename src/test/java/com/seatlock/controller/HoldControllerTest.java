@@ -17,6 +17,7 @@ import com.seatlock.exception.HoldNotActiveException;
 import com.seatlock.exception.NotFoundException;
 import com.seatlock.exception.SeatUnavailableException;
 import com.seatlock.model.HoldStatus;
+import com.seatlock.ratelimit.RateLimitingFilter;
 import com.seatlock.service.BookingService;
 import com.seatlock.service.EventService;
 import com.seatlock.service.HoldService;
@@ -25,12 +26,16 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest({EventController.class, HoldController.class})
+// The rate limiter is covered by RateLimitingFilterTest; this test is only about HTTP mapping.
+@WebMvcTest(controllers = {EventController.class, HoldController.class},
+        excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = RateLimitingFilter.class))
 class HoldControllerTest {
 
     private static final Instant EXPIRES = Instant.parse("2030-01-01T18:10:00Z");

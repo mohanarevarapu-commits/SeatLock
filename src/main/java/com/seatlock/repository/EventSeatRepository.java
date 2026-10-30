@@ -19,14 +19,20 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
     @Query("select es from EventSeat es where es.id in :ids order by es.id")
     List<EventSeat> findAllByIdForUpdate(@Param("ids") Collection<Long> ids);
 
+    /**
+     * Reads only the columns the seat map needs, without loading entities. A large venue has
+     * thousands of seats and this is the busiest read during an on-sale, so it stays cheap.
+     */
     @Query("""
-            select es from EventSeat es
-            join fetch es.seat s
-            join fetch s.section
+            select new com.seatlock.repository.SeatMapRow(
+                es.id, sec.id, sec.name, sec.priceCents, s.rowLabel, s.number, es.status, es.heldUntil)
+            from EventSeat es
+            join es.seat s
+            join s.section sec
             where es.event.id = :eventId
             order by es.id
             """)
-    List<EventSeat> findSeatMap(@Param("eventId") Long eventId);
+    List<SeatMapRow> findSeatMap(@Param("eventId") Long eventId);
 
     @Query("""
             select es from EventSeat es

@@ -14,3 +14,6 @@ target/
 
 # Local env overrides
 .env
+
+# Locust reports
+load-test/results/

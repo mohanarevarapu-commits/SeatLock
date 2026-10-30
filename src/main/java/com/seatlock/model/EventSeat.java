@@ -64,8 +64,7 @@ public class EventSeat {
     }
 
     public boolean isAvailableAt(Instant now) {
-        return status == SeatStatus.AVAILABLE
-                || (status == SeatStatus.HELD && !now.isBefore(heldUntil));
+        return isAvailable(status, heldUntil, now);
     }
 
     public boolean isHeldBy(Long holdId, Instant now) {
@@ -76,7 +75,17 @@ public class EventSeat {
 
     /** Status as a customer would see it at {@code now}, with lapsed holds shown as available. */
     public SeatStatus effectiveStatus(Instant now) {
-        return isAvailableAt(now) ? SeatStatus.AVAILABLE : status;
+        return effectiveStatus(status, heldUntil, now);
+    }
+
+    /** Same rule as {@link #effectiveStatus(Instant)}, for callers that read seat columns without loading the entity. */
+    public static SeatStatus effectiveStatus(SeatStatus status, Instant heldUntil, Instant now) {
+        return isAvailable(status, heldUntil, now) ? SeatStatus.AVAILABLE : status;
+    }
+
+    private static boolean isAvailable(SeatStatus status, Instant heldUntil, Instant now) {
+        return status == SeatStatus.AVAILABLE
+                || (status == SeatStatus.HELD && !now.isBefore(heldUntil));
     }
 
     public void hold(Long holdId, Instant until, Instant now) {

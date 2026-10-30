@@ -26,6 +26,8 @@ flowchart LR
 | Model | `model` | JPA entities. Domain rules live here (`EventSeat.hold/book/releaseIfHeldBy`, `Hold.confirm/release/expire`). |
 | DTO | `dto` | Request and response records. Entities never leave a service (`open-in-view` is off). |
 | Errors | `exception` | Domain exceptions, mapped to RFC 9457 responses in `GlobalExceptionHandler`. |
+| Queue | `queue` | Artemis queue names, retry and dead-letter policy, JSON messages, and `PurchaseRequestConsumer`. |
+| Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout paths; returns `429` before any controller runs. |
 
 ## Data model
 
@@ -141,6 +143,45 @@ Because B only checks seat 8 after acquiring its lock, it always sees A's commit
   then locks the seats and checks each is still held by this hold. Whichever of confirm or the
   sweeper gets the hold lock first wins; the other sees a non-active hold and stops.
 
+## Queued checkout
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant API as PurchaseRequestController
+    participant Q as ticket-purchase-queue
+    participant W as PurchaseRequestConsumer
+    participant H as HoldService (locks)
+    participant DLQ as DLQ.ticket-purchase-queue
+
+    C->>API: POST /events/{id}/purchase-requests
+    API->>Q: message (group = event id)
+    API-->>C: 202 + requestId (no DB access)
+    Q->>W: deliver, one at a time per event
+    W->>H: createHold, then record outcome (one transaction)
+    alt held or refused
+        H-->>W: HELD, or REJECTED (seat taken, unknown event)
+    else technical failure
+        W--xQ: rollback, broker retries after 0.5 s, 1 s, 2 s
+        Q->>DLQ: after 4 attempts
+        DLQ->>W: mark FAILED
+    end
+    C->>API: GET /purchase-requests/{requestId}
+```
+
+- **The queue changes when the database is hit, not how.** The consumer goes through
+  `HoldService.createHold`, so the locking rules above apply unchanged, and consumers on several
+  app instances stay safe.
+- **One event at a time.** Messages carry `JMSXGroupID = event-{id}`, so Artemis delivers one
+  event's requests in order to a single consumer, while different events are processed in
+  parallel.
+- **Outcome rows are the idempotency key.** `purchase_requests` uses the request id as its primary
+  key and is written in the same transaction as the hold. A redelivered message that already has a
+  row is skipped, so a crash between commit and acknowledgement never creates a second hold.
+- **Business refusals are not retried.** `SeatUnavailableException`, `NotFoundException` and
+  `InvalidRequestException` are recorded as `REJECTED` in a new transaction. Everything else is
+  rethrown so the transacted JMS session rolls back and the broker redelivers.
+
 ## Configuration
 
 | Property | Default | Meaning |
@@ -150,6 +191,13 @@ Because B only checks seat 8 after acquiring its lock, it always sees A's commit
 | `seatlock.holds.sweep-interval` | `PT30S` | Delay between expiry sweeps |
 | `seatlock.holds.sweep-batch-size` | `200` | Holds expired per sweep |
 | `seatlock.holds.sweeper-enabled` | `true` | Turn the background sweeper off (tests do this) |
+| `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout (off in tests and load tests) |
+| `seatlock.rate-limit.requests-per-second` | `5` | Checkout requests allowed per second per IP, also the burst size |
+| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm` | Paths the limit applies to |
+| `seatlock.queue.consumers` | `1-4` | Queue consumer threads (one event's requests are still processed one at a time) |
+| `seatlock.queue.max-delivery-attempts` | `4` | Tries per queued request before it goes to the dead-letter queue |
+| `seatlock.queue.redelivery-delay` | `PT0.5S` | Wait before the first retry |
+| `seatlock.queue.redelivery-multiplier` | `2.0` | Growth of the wait on each further retry (0.5 s, 1 s, 2 s) |
 
 Profiles: default uses in-memory H2 in MySQL mode; `mysql` points at MySQL 8 (see
 `docker-compose.yml`); `demo` seeds a 5,000-seat venue and two events.
@@ -168,5 +216,23 @@ threads. Each test creates its own venue and event instead of cleaning up. Time 
 `MutableClock.advance(...)`, and since the sweeper is disabled in tests, they call
 `HoldExpiryService.expireLapsedHolds()` directly.
 
-`ConcurrentHoldIntegrationTest` runs 16 threads at once against the same seats (exactly one must
-win) and against overlapping seats (no seat may be held twice, and nothing may deadlock).
+`ConcurrentHoldIntegrationTest` runs 200 threads at once in three races:
+
+- **Same seats:** exactly one buyer must win.
+- **Overlapping seats:** no seat may be held twice, and nothing may deadlock.
+- **Mixed traffic:** buyers retry for 3 of the same 40 seats, then confirm, release or keep their
+  hold, so create, confirm and release lock the same rows at the same time. Every seat must end
+  in at most one confirmed or active hold, and the seat map must agree.
+
+For load beyond the test suite, the Locust script in `load-test/` drives a running app over HTTP
+with 500 virtual fans (see the README).
+
+## Performance
+
+- **Seat map reads columns, not entities.** `EventSeatRepository.findSeatMap` selects only the
+  fields the map needs into `SeatMapRow` records. The "lapsed hold counts as available" rule is
+  shared through the static `EventSeat.effectiveStatus(status, heldUntil, now)`, so it still lives
+  on the entity.
+- **gzip** is on for `application/json` and `application/problem+json` responses.
+- **Connection pool:** the default 10 connections. Larger pools were measured and did not raise
+  throughput, because contended holds wait on row locks rather than on connections.
