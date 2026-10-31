@@ -32,8 +32,15 @@ Documentation only; the app is unchanged from 0.9.0.
   Your details and demo payment, confirm with the contact, ticket email with the QR code) and of
   Find my tickets (code by email, lookup, limits); the venue `address` in the data model; the
   full configuration table and the profiles as they are now.
-- **API guide:** the typical flow now ends with the ticket email, the QR code and Find my tickets.
-- **README:** ZXing and the ticket emails in the tech stack; Your details in the Book now steps.
+- **API guide:** the typical flow now ends with the ticket email, the QR code and Find my tickets;
+  the error table lists `400 Invalid code`; the `429` rows say that checkout, sign-in and Find my
+  tickets share one limit.
+- **README:** ZXing and the ticket emails in the tech stack; Your details in the Book now steps;
+  the error table lists `401`, `403` and `429`; the rate limit covers sign-in and Find my tickets
+  too; without a mail server, emails are skipped with a warning or kept in the demo outbox.
+- **Test guide:** "all 140 tests" under Running the tests (it still said 119), and both demo
+  outbox tests listed by method name.
+- **CLAUDE.md:** the rate limit covers sign-in and Find my tickets too.
 
 ## 0.9.0 — 2026-10-31
 

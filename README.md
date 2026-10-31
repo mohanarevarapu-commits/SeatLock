@@ -134,9 +134,8 @@ optional: anyone can browse, and opening the site never asks you to log in.
   and phone number) above the card / UPI form → **Pay now**. Pay now checks the details first,
   then the payment, then books the seats.
 - After paying, the booking details are emailed: to the account's email, or to the guest's email
-  ("Your SeatLock booking SL-…" with the concert, venue, time, seats and total). The phone number
-  is kept with the booking; there is no text-message service.
-
+  ("Your SeatLock booking SL-…" with the QR code, concert, venue, time, seats and total). The phone
+  number is kept with the booking; there is no text-message service.
 - **Sign up / Log in** in the top-right corner. Once signed in, the corner shows the buyer's
   initials and first name; its menu shows their name, email and phone, and links to **My
   bookings**, **Profile** and **Log out**.
@@ -169,11 +168,11 @@ https://myaccount.google.com/apppasswords; your normal Gmail password will not w
 SMTP provider works the same way with its own host, port and credentials. STARTTLS is on by
 default.
 
-Without `SPRING_MAIL_HOST`, the app still runs and skips emails with a warning in the log (the
-email content, which can contain a reset link or a ticket code, is never logged). Set
-`SEATLOCK_BASE_URL` when the app is not at `http://localhost:8080`, so links in emails point to
-the right place, and `SEATLOCK_TIME_ZONE` (e.g. `Asia/Kolkata`) if concert times in emails should
-use a different zone from the server's.
+Without `SPRING_MAIL_HOST`, the app still runs: emails are skipped with a warning in the log, or,
+with the `demo` profile, kept in the demo outbox (below). The email content, which can contain a
+reset link or a ticket code, is never logged. Set `SEATLOCK_BASE_URL` when the app is not at
+`http://localhost:8080`, so links in emails point to the right place, and `SEATLOCK_TIME_ZONE`
+(e.g. `Asia/Kolkata`) if concert times in emails should use a different zone from the server's.
 
 #### The demo outbox
 
@@ -244,10 +243,15 @@ Errors use RFC 9457 problem responses:
 
 | Status | When |
 |---|---|
-| `400` | Validation failed, too many seats, the event has started, or a wrong or expired ticket code |
-| `404` | Unknown venue, event, hold, seat or booking |
-| `409` | Seats already taken (`eventSeatIds` lists which), hold no longer active, or a concurrent update (retry) |
+| `400` | Validation failed, too many seats, the event has started, an invalid or expired reset link, or a wrong or expired ticket code |
+| `401` | Wrong email or password, or `/api/account/**` without signing in |
+| `403` | A signed-in change without the CSRF token (`X-XSRF-TOKEN`) |
+| `404` | Unknown venue, event, hold, seat or booking, or another buyer's hold |
+| `409` | Seats already taken (`eventSeatIds` lists which), hold no longer active, a concurrent update (retry), or signing up with an email that already has an account |
 | `410` | Confirming a hold after it expired |
+| `429` | Over the rate limit (see [How concurrency is handled](#how-concurrency-is-handled)); retry after `Retry-After` seconds |
+
+Every error title is listed in [docs/API.md](docs/API.md#errors).
 
 ### Example
 
@@ -274,8 +278,9 @@ curl -s -X POST localhost:8080/api/holds/1/confirm
   before the background sweeper (every 30 s) marks the hold `EXPIRED`. When the sweeper does
   run, it only frees seats still owned by that hold, so it never undoes a newer hold.
 - **Holds never outlive the show.** A hold's expiry is capped at the event start time.
-- **Rate limiting.** Each client IP may send 5 checkout requests per second (token bucket).
-  Extra requests get `429 Too Many Requests` with `Retry-After` before reaching the database.
+- **Rate limiting.** Each client IP may send 5 requests per second (token bucket) to the checkout,
+  sign-in and Find my tickets endpoints together. Extra requests get `429 Too Many Requests` with
+  `Retry-After` before reaching the database.
 
 `ConcurrentHoldIntegrationTest` fires 200 simultaneous requests at the same seats, at
 overlapping seats, and as a mix of holds, confirms and releases, and checks that each seat goes
@@ -363,7 +368,7 @@ src/main/java/com/seatlock
 ├── queue/         Artemis queue setup, retry/dead-letter policy, purchase consumer
 ├── notification/  Account and ticket emails (HTML with the QR code), sent after commit on a
 │                  background thread; the demo outbox
-├── ratelimit/     Per-IP token bucket filter for checkout and sign-in endpoints
+├── ratelimit/     Per-IP token bucket filter for checkout, sign-in and Find my tickets endpoints
 ├── security/      Spring Security setup, session sign-in, CSRF rules
 ├── repository/    Spring Data repositories, including the locking queries
 └── service/       Business logic: holds, bookings, expiry, queue, tickets, QR codes
@@ -387,8 +392,8 @@ load-test/         Locust load test (500 virtual fans)
 | `seatlock.holds.sweep-interval` | `PT30S` | Delay between expiry sweeps |
 | `seatlock.holds.sweep-batch-size` | `200` | Holds expired per sweep |
 | `seatlock.holds.sweeper-enabled` | `true` | Turn the background sweeper off (tests do this) |
-| `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout (off in tests and load tests) |
-| `seatlock.rate-limit.requests-per-second` | `5` | Checkout requests allowed per second per IP, also the burst size |
+| `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout, sign-in and Find my tickets (off in tests and load tests) |
+| `seatlock.rate-limit.requests-per-second` | `5` | Requests allowed per second per IP on the limited paths together, also the burst size |
 | `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm`, `/api/auth/*`, `/api/tickets/*` | Paths the limit applies to |
 | `seatlock.accounts.reset-token-ttl` | `PT30M` | How long a forgot-password link works |
 | `seatlock.accounts.base-url` | `http://localhost:8080` (env `SEATLOCK_BASE_URL`) | Address used for links in emails |

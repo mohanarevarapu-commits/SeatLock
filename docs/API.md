@@ -268,7 +268,7 @@ Other failures:
 | `400` | Validation failed, more than 8 seats, or the event has already started |
 | `404` | Unknown event, or a seat id that does not belong to this event |
 | `409` | A seat is taken (above), or a concurrent update; retry the request |
-| `429` | More than 5 checkout requests per second from your IP; see [Rate limiting](#rate-limiting) |
+| `429` | More than 5 requests per second from your IP, counting checkout, sign-in and Find my tickets together; see [Rate limiting](#rate-limiting) |
 
 ### `GET /api/holds/{id}`
 
@@ -326,7 +326,7 @@ phone gets `400` and nothing is booked.
 | `404` | Unknown hold |
 | `409` | Hold is not active (already confirmed, released or expired) |
 | `410` | Hold's time ran out before you confirmed; place a new hold |
-| `429` | More than 5 checkout requests per second from your IP; see [Rate limiting](#rate-limiting) |
+| `429` | More than 5 requests per second from your IP, counting checkout, sign-in and Find my tickets together; see [Rate limiting](#rate-limiting) |
 
 ---
 
@@ -520,6 +520,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem res
 |---|---|---|---|
 | `400` | `Bad Request` | Body failed validation | Fix the request |
 | `400` | `Invalid request` | Too many seats, the event has started, or a reset link is invalid or expired | Fix the request; ask for a new reset link |
+| `400` | `Invalid code` | A Find my tickets code that is wrong, already used, expired, or ended by five wrong tries | Ask for a new code |
 | `401` | `Sign-in failed` | Wrong email or password (same answer for both) | Check and retry |
 | `401` | `Sign-in required` | `/api/account/**` without a session | Sign in first |
 | `403` | `Forbidden` | A request with a session cookie but no valid `X-XSRF-TOKEN` header | Send the CSRF header (see [Accounts](#accounts)) |
@@ -529,7 +530,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem res
 | `409` | `Hold not active` | Hold already confirmed, released or expired | Fetch the hold to see its status |
 | `409` | `Concurrent update` | Another request changed the same seats at the same moment | Retry |
 | `410` | `Hold expired` | Confirm arrived after the hold's time ran out | Place a new hold |
-| `429` | `Too many requests` | Over the checkout rate limit | Wait for `Retry-After` seconds, then retry |
+| `429` | `Too many requests` | Over the rate limit (checkout, sign-in and Find my tickets requests together) | Wait for `Retry-After` seconds, then retry |
 
 ## Queued checkout
 

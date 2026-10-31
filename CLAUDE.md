@@ -43,7 +43,8 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
   `queue/PurchaseRequestConsumer` processes it via `HoldService`. Only `REJECTED` outcomes for
   business exceptions are final; any other exception must propagate so the broker retries and
   dead-letters it.
-- `ratelimit/RateLimitingFilter` limits checkout requests per client IP (`seatlock.rate-limit.*`).
+- `ratelimit/RateLimitingFilter` limits checkout, sign-in and Find my tickets requests per client IP
+  (one bucket per IP for all of them, `seatlock.rate-limit.*`).
   It is off in the `test` profile because the test clock is frozen; `RateLimitingFilterTest` covers it.
 - `security/SecurityConfig`: session sign-in, only `/api/account/**` needs it. CSRF is checked only
   for requests that carry a session cookie; the web client sends `X-XSRF-TOKEN`. Spring Security

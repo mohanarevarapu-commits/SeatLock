@@ -91,13 +91,15 @@ concert page to see its seats and total.
 ## Running the tests
 
 ```bash
-./mvnw clean test                                                      # all 119 tests
+./mvnw clean test                                                      # all 140 tests
 ./mvnw test -Dtest=ConcurrentHoldIntegrationTest                       # one class
 ./mvnw test -Dtest=HoldServiceIntegrationTest#cannotHoldASeatSomeoneElseHolds   # one scenario
 ```
 
 The tests need no database, broker, mail account or network: they use in-memory H2, the embedded
-Artemis broker, and GreenMail, an in-memory SMTP server that receives the account emails. Stop a running app before `./mvnw clean test`, because `clean` deletes the classes it runs from.
+Artemis broker, and GreenMail, an in-memory SMTP server that receives the emails (account, ticket
+and code emails). Stop a running app before `./mvnw clean test`, because `clean` deletes the
+classes it runs from.
 
 | Test class | Kind | Tests |
 |---|---|---|
@@ -339,7 +341,8 @@ are decoded back with ZXing (`support/QrCodes`), and email parts read with `supp
 | Asking for a new code at once, then after 31 seconds | No second email at once; after 31 seconds a new code arrives, the old one stops working, the new one works | `aNewCodeIsSentOnlyAfterThirtySecondsAndReplacesTheOldOne` |
 | An invalid email or phone when asking; a code that is not 6 digits | `400` | `requestsAreValidated` |
 | QR generator | A 320×320 PNG that scans back to the text | `QrCodeGeneratorTest.ticketQrCodeIsAPngThatScansBackToTheReference` |
-| Demo outbox | Newest first, only the last 50; `cid:` images in the HTML become data URIs | `DemoOutboxTest` (2) |
+| Demo outbox with 55 emails | Newest first, and only the last 50 are kept | `DemoOutboxTest.keepsTheNewestEmailsFirstAndOnlyTheLastFifty` |
+| A stored email with an inline image | The `cid:` image in the HTML becomes a data URI, so the outbox page can show it | `DemoOutboxTest.imagesInTheHtmlBecomeDataUrisSoABrowserCanShowThem` |
 | Who may read the demo outbox | Only `127.0.0.1` and `::1`; any other address is refused | `DemoOutboxControllerTest.onlyRequestsFromThisMachineMayReadTheOutbox` |
 
 ## Manual scenarios: web client
