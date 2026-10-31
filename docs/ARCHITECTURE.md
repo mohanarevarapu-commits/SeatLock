@@ -11,7 +11,7 @@ flowchart LR
     browser --> limiter
     client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
-        web[static web client<br/>index.html, app.js, account.js, info.js]
+        web[static web client<br/>index.html, app.js, payment.js, account.js, info.js]
         limiter[RateLimitingFilter<br/>5 checkout and sign-in req/s per IP] --> security
         security[Spring Security<br/>session sign-in, CSRF,<br/>/api/account needs sign-in] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
@@ -38,7 +38,7 @@ flowchart LR
 The web client in `src/main/resources/static` is plain HTML, CSS and JavaScript served by
 Spring Boot at `/`. It has no server-side logic: it calls the same public REST API as any other
 client, so every seat it shows and every hold it places goes through the same checks. Its home
-page (Today, Tomorrow and Selling fast boxes) is built in the browser from `GET /api/events`, whose seat
+page (Today's concerts, Tomorrow's concerts and Selling fast blocks, each opening a list) is built in the browser from `GET /api/events`, whose seat
 totals come from one grouped count over `event_seats` (`EventSeatRepository.countSeatsByEvent`);
 it reads without locks, so the numbers can be a moment old, which is fine for a show list.
 
@@ -52,8 +52,9 @@ echoes the `XSRF-TOKEN` cookie in an `X-XSRF-TOKEN` header. Controllers pass the
 account id (or null for a guest) to the services, which tie new holds to it and refuse anyone else
 on that hold with `404`.
 
-**Emails** (welcome, reset link, password changed) are published as events inside the service's
-transaction and sent by `AccountMailer` only after it commits, on a background thread. Nothing is
+**Emails** (welcome, reset link, password changed, and the booking confirmation sent by
+`BookingMailer` to the account or guest email) are published as events inside the service's
+transaction and sent only after it commits, on a background thread. Nothing is
 sent for a change that rolled back, a slow mail server never delays a response, and response
 times do not reveal whether an email has an account. There are two ways to place a hold:
 
@@ -122,6 +123,8 @@ erDiagram
         long id PK
         string reference "SL-XXXXXX"
         long total_cents
+        string contact_email "a guest's email, or null"
+        string contact_phone "a guest's phone, or null"
     }
     ACCOUNT {
         long id PK
@@ -154,8 +157,9 @@ erDiagram
   and the only row that gets locked when seats change hands.
 - **Hold** is a time-limited claim on a set of event seats. It stores the seat ids it covers.
 - **Booking** is the confirmed result of exactly one hold (`hold_id` is unique).
-- **Account** is an optional registered buyer: the only personal data SeatLock stores. A hold
-  records the account that placed it; bookings reach their account through their hold, which is
+- **Account** is an optional registered buyer. With a guest booking's contact email and phone
+  (given on the payment page, sent with the confirm request), it is the only personal data
+  SeatLock stores. A hold records the account that placed it; bookings reach their account through their hold, which is
   how **My bookings** finds them.
 - **PasswordResetToken** is one forgot-password link. Only a hash of the token is stored, so a
   copy of the database cannot be used to reset passwords. A token works once, until it expires,

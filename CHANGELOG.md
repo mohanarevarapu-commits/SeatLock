@@ -9,12 +9,131 @@ the steps.
 
 | Version | Date | Theme | Automated tests | Commits |
 |---|---|---|---|---|
+| [0.8.0](#080--2026-10-31) | 2026-10-31 | Log in, sign up or continue as guest; guest email and phone on the payment page, then Pay now; booking confirmation emails; always start on the home page | 127 | tag `v0.8.0` |
+| [0.7.0](#070--2026-10-31) | 2026-10-31 | Home page blocks that open their lists; demo payment page with card and UPI (test details only) | 122 | released in the `v0.8.0` commit (no separate tag) |
 | [0.6.0](#060--2026-10-31) | 2026-10-31 | Minimal home page: description, search, Today / Tomorrow / Selling fast boxes, What we offer, footer with help and policy pages; live seat status; seat totals in the event API | 122 | tag `v0.6.0` |
 | [0.5.0](#050--2026-10-31) | 2026-10-31 | Buyer accounts: sign-up, log-in, forgot password by email, profile menu, My bookings | 119 | tag `v0.5.0` |
 | [0.4.0](#040--2026-10-31) | 2026-10-31 | Web client, venue layouts, Book now checkout, test scenarios | 99 | tag `v0.4.0` |
 | [0.3.0](#030--2026-10-30) | 2026-10-30 | Traffic spikes: rate limiting, queued checkout, load testing | 86 | `085ece7`, `36a7108` |
 | [0.2.0](#020--2026-10-30) | 2026-10-30 | API documentation and Swagger UI | 73 | `1bd34eb` |
 | [0.1.0](#010--2026-10-30) | 2026-10-30 | Core reservation backend | 73 | `7950665` |
+
+---
+
+## 0.8.0 — 2026-10-31
+
+Book as a guest or log in, and booking details by email.
+
+### Added
+
+- **"How would you like to book?"** When a logged-out buyer clicks **Book now** (or **Join the
+  queue instead**), a dialog offers three buttons and nothing to fill in:
+  - **Log in** or **Sign up**: after signing in the buyer returns to the same concert with the
+    same seats selected and goes straight on to payment.
+  - **Continue as guest**: goes straight to the payment page.
+  Signed-in buyers skip the question.
+- **Guest routine on the payment page:** **Your details** (email and phone number) above the
+  card / UPI form, and a **Pay now · $…** button. Pay now checks the details first (valid email;
+  7 to 20 digits, spaces, brackets, dashes, optional `+`), then the payment, then confirms. A
+  signed-in buyer's **Your details** shows their name and email instead, with nothing to type.
+- **Guest contact on the booking:** `POST /api/holds/{id}/confirm` takes an optional body
+  `{contactEmail, contactPhone}`, validated on the server and stored on the booking
+  (`contact_email`, `contact_phone`), never returned by the API. Ignored for signed-in buyers.
+  A guest who leaves without paying leaves no contact details behind.
+- **Booking confirmation email** ("Your SeatLock booking SL-…": reference, concert, venue, time
+  in UTC, seats, total, site link) sent after the booking commits, to the account's email for a
+  signed-in buyer or to the guest's email (`BookingMailer`). The confirmation page says where it
+  was sent.
+- **Test data section** in `docs/TESTING.md`: demo login, guest contact examples, test cards and
+  UPI IDs, how emails behave without a mail server, booking lookup.
+
+### Changed
+
+- **Opening the site always starts on the page in the address**: a plain link opens the home
+  page and never the log-in or payment page. Only reloading the payment page (`#checkout`)
+  brings back a payment in progress; otherwise an unfinished payment's seats are released at once.
+- The cart no longer shows "Log in first to keep this booking"; the dialog replaces it.
+- The payment button reads **Pay now · $…**.
+- **Personal data rule:** guests now give an email and phone number when they pay, kept with
+  their booking (README, CLAUDE.md and the Privacy page updated).
+- Version 0.8.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links. The account
+  notifications (watchlist, "booking opens" alerts, reminders, "selling fast" emails) move to 0.9.0.
+
+### Fixed
+
+- **Phone numbers were never checked in the browser** (sign-up, profile and now Your details):
+  the phone pattern used `(` and `)` unescaped inside `[...]`, which browsers reject when they
+  compile patterns with the `v` flag, and an invalid pattern is silently ignored. The server
+  still refused bad numbers, so only the error message was poor ("Invalid request content").
+
+### Known limitations
+
+- No text messages: the phone number is stored, but booking details go by email only.
+- Without a mail server (`SPRING_MAIL_*`), confirmation emails are skipped with a log line.
+
+### Tested
+
+| What | How | Result |
+|---|---|---|
+| Full test suite | `./mvnw clean test` | 127 tests, 0 failures (5 new in `AccountIntegrationTest`) |
+| Guest confirmation email | GreenMail | Confirm with email and phone in the body → booking stores both → email arrives at the guest's address with reference, concert, venue, seat, total and link |
+| Signed-in confirmation email | GreenMail | Goes to the account's email (greeting by name), not to a contact email sent in the body; the booking stores no contact |
+| Contact validation | HTTP | Bad email or phone `400` with the hold still active; a valid pair then `201`; confirming without a body still books |
+| Privacy | HTTP | Booking lookup by reference never returns the guest's email or phone |
+| Guest routine in the browser | Headless Chrome | Home page on arrival, logged out; **Book now** → dialog with exactly **Log in**, **Sign up**, **Continue as guest** and no fields; **Continue as guest** → payment page with Order summary, Your details, Payment and **Pay now · $65.00**; Pay now with no email → "Enter your email address…" (cursor in Email); phone `call me` → "Enter your phone number…"; no card → "Enter the name on the card."; test card → "Processing payment…" → `SL-VDZC36`, "Booking details are emailed to guest.fan@example.com"; server log shows the confirmation email for `SL-VDZC36` (skipped, no SMTP) |
+| Log-in routine in the browser | Headless Chrome | **Book now** → **Log in** → demo account → back with the same seat on the payment page; Your details shows "Demo Fan · demo@example.com" with no fields; UPI `success@demo` → `SL-FUCS7T`, "emailed to demo@example.com" |
+| Queue as a guest | Headless Chrome | **Join the queue instead** → **Continue as guest** → "You're in the queue…" → payment page with Your details |
+| Landing | Headless Chrome | Plain address with an unpaid hold saved: home page, hold `RELEASED` on the server; reload of `#checkout`: payment page restored, hold still `ACTIVE` |
+| Manual scenarios | `docs/TESTING.md` rows 13, 22, A7, A8, A19 updated, A18–A25 added; new "Test accounts and test data" section | |
+
+---
+
+## 0.7.0 — 2026-10-31
+
+Home page blocks, and a demo payment page with card and UPI.
+
+### Added
+
+- **Demo payment page:** the payment step now has a **Card** form (name, number spaced in fours
+  with the brand shown, expiry, CVC) and a **UPI** tab, a short "Processing payment…" step, and
+  "Paid with Visa ending 4242" (or the UPI ID) on the confirmation.
+  - Only published test details work: cards `4242 4242 4242 4242` and `5555 5555 5555 4444`
+    (approved), `4000 0000 0000 0002` (declined), `4000 0000 0000 9995` (insufficient funds);
+    UPI `success@demo` (approved) and `failure@demo` (declined). Any other card, including a
+    real one, is refused. **Use a test card** / **Use a test UPI ID** fill the form in.
+  - Card and UPI details are checked in the browser (number checksum, future expiry, CVC, UPI
+    format) and are never sent to the server or stored; the form is cleared after payment. The
+    server still only receives `POST /api/holds/{id}/confirm`.
+  - A declined payment keeps the seats reserved so the buyer can try again before the timer ends.
+  - New file `static/payment.js`; Help, Terms, Privacy and Payments pages describe it.
+
+### Changed
+
+- **Home blocks:** **Today's concerts**, **Tomorrow's concerts** and **Selling fast** are three
+  blocks side by side (stacked on a phone) that show only how many concerts each has, with no
+  concert details. Clicking a block opens its list with dates, venues, times and "from" prices;
+  Selling fast also shows "% sold", most sold first. Each list has its own address (`#today`,
+  `#tomorrow`, `#selling-fast`, and `#all` for **Browse all concerts**), so the browser's Back
+  button returns from a concert to the list it came from. The rows inside the boxes, **See all**
+  and the bars are gone.
+- Version 0.7.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links. The account
+  notifications planned for 0.7.0 (watchlist, "booking opens" alerts, reminders, "selling fast"
+  emails) move to a later version (now 0.9.0).
+
+### Known limitations
+
+- The demo payment runs in the browser, so `POST /api/holds/{id}/confirm` still books without
+  a payment. A real provider must confirm bookings from its server-side notification instead.
+
+### Tested
+
+| What | How | Result |
+|---|---|---|
+| Full test suite | `./mvnw clean test` | 122 tests, 0 failures; `WebClientIntegrationTest` also checks `payment.js` is served |
+| Home blocks | Headless Chrome | 3 blocks and no concert rows (Today 2, Tomorrow 2, Selling fast 6); **Tomorrow's concerts** → `#tomorrow` with 2 concerts → *Sunset Acoustic Sessions* with 816 of 1,632 seats free → Back returns to `#tomorrow` |
+| Demo card payment | Headless Chrome, driving the form | Real-looking `4111 1111 1111 1111` refused; `4000 0000 0000 0002` shows "Processing payment…" (button disabled) then "declined" with the hold still active; empty name caught; test card books (`SL-9GMVHS`, "Paid with Visa ending 4242") |
+| Demo UPI payment | Headless Chrome | `someone@okbank` refused, `failure@demo` declined, `success@demo` booked |
+| Manual scenarios | `docs/TESTING.md` rows 1, 2, 15, 37, 38 updated, 43–50 added | |
 
 ---
 
@@ -79,7 +198,7 @@ A minimal home page instead of one long strip of shows.
 ## 0.5.0 — 2026-10-31
 
 Optional buyer accounts. Phase 1 of 2: watchlist, "booking opens" alerts, show reminders and
-"selling fast" emails come later (planned for 0.7.0, after the 0.6.0 home page).
+"selling fast" emails come later (now planned for 0.9.0).
 
 ### Added
 

@@ -5,6 +5,7 @@ build, the manual checks for the web client, and the load test. For how the test
 profile, controllable clock, race harness) see the
 [architecture guide](ARCHITECTURE.md#testing-strategy).
 
+- [Test accounts and test data](#test-accounts-and-test-data)
 - [Running the tests](#running-the-tests)
 - [Automated scenarios](#automated-scenarios)
   - [Seat and hold rules](#seat-and-hold-rules)
@@ -23,6 +24,58 @@ profile, controllable clock, race harness) see the
 - [Manual scenarios: accounts](#manual-scenarios-accounts)
 - [Load test scenario](#load-test-scenario)
 - [Not covered yet](#not-covered-yet)
+
+## Test accounts and test data
+
+Everything you need to try SeatLock by hand. Start the app with demo data
+(`./mvnw spring-boot:run -Dspring-boot.run.profiles=demo`) and open http://localhost:8080. The
+demo data, including any bookings you make, resets every time the app restarts.
+
+**Log in (demo account)**
+
+| Field | Value |
+|---|---|
+| Email | `demo@example.com` |
+| Password | `seatlock-demo` |
+
+It has two bookings under **My bookings** (*The Glass Garden* and *Late Night Jazz Sessions*).
+**Sign up** works with any email and a password of 8 or more characters.
+
+**Book as a guest**
+
+**Book now** → **Continue as guest**; on the payment page, **Your details** asks for an email
+and a phone number, then **Pay now**. Any well-formed values work, for example:
+
+| Field | Example | Rules |
+|---|---|---|
+| Email | `guest.fan@example.com` | A valid email address |
+| Phone | `+91 98765 43210` or `+44 20 7946 0000` | 7 to 20 digits, spaces, brackets and dashes, optionally starting with `+` |
+
+**Pay (demo payment page)**
+
+| Method | Test detail | Result |
+|---|---|---|
+| Card | `4242 4242 4242 4242` | Approved |
+| Card | `5555 5555 5555 4444` | Approved |
+| Card | `4000 0000 0000 0002` | Declined |
+| Card | `4000 0000 0000 9995` | Insufficient funds |
+| UPI | `success@demo` | Approved |
+| UPI | `failure@demo` | Declined |
+
+For cards use any name, any future expiry (e.g. `12/27`) and any CVC (e.g. `123`); **Use a test
+card** fills one in. Any other card or UPI ID, real or not, is refused.
+
+**Emails**
+
+Booking confirmations, welcome, reset-link and password-changed emails are sent only when a mail
+server is set (`SPRING_MAIL_*`, see the README). Without one, the app log shows
+`No mail server configured (spring.mail.host); not sending "Your SeatLock booking SL-…"` instead.
+Use an address you can read when you test real email.
+
+**Find a booking**
+
+Every booking gets a reference such as `SL-Q4XKJV`. Enter it under **Find a booking** on any
+concert page to see its seats and total.
 
 ## Running the tests
 
@@ -45,7 +98,7 @@ Artemis broker, and GreenMail, an in-memory SMTP server that receives the accoun
 | `ratelimit/RateLimitingFilterTest` | Unit | 6 |
 | `service/BookingReferenceGeneratorTest` | Unit | 22 |
 | `controller/HoldControllerTest` | HTTP slice (`@WebMvcTest`, mocked services) | 8 |
-| `controller/AccountIntegrationTest` | Full app over HTTP, GreenMail | 16 |
+| `controller/AccountIntegrationTest` | Full app over HTTP, GreenMail | 21 |
 | `controller/ReservationFlowIntegrationTest` | Full app over HTTP | 2 |
 | `controller/WebClientIntegrationTest` | Full app over HTTP | 2 |
 | `service/HoldServiceIntegrationTest` | Full app, H2 | 9 |
@@ -55,7 +108,7 @@ Artemis broker, and GreenMail, an in-memory SMTP server that receives the accoun
 | `service/QueuedCheckoutIntegrationTest` | Full app, H2, embedded broker | 7 |
 | `service/VenueLayoutIntegrationTest` | Full app, H2 | 2 |
 | `service/EventListingIntegrationTest` | Full app, H2 | 3 |
-| **Total** | | **122** |
+| **Total** | | **127** |
 
 Parameterised and repeated tests count once per run, so `SeatTest` has 3 methods but 11 runs, and
 `BookingReferenceGeneratorTest` has 3 methods but 22 runs.
@@ -218,7 +271,7 @@ Venue type, stage position and section zones, from `VenueLayoutTest` (unit) and
 | Scenario | Expected | Test |
 |---|---|---|
 | A browser opens `/` | It gets the web client page | `rootServesTheWebClient` |
-| The page loads its scripts and styles | `app.js`, `account.js`, `info.js` and `app.css` are served; the stylesheet keeps the rule that makes `hidden` pages invisible | `scriptsAndStylesAreServed` |
+| The page loads its scripts and styles | `app.js`, `payment.js`, `account.js`, `info.js` and `app.css` are served; the stylesheet keeps the rule that makes `hidden` pages invisible | `scriptsAndStylesAreServed` |
 
 ### Accounts, sign-in and email
 
@@ -248,6 +301,11 @@ only the emails sent to its own address. `AccountRulesTest` covers the entity ru
 | Email with spaces and capitals | Stored trimmed and lower-case | `AccountRulesTest.emailIsStoredTrimmedAndLowerCase` |
 | A reset token | Works until it expires or is used, not after | `AccountRulesTest.resetTokenWorksUntilItExpiresOrIsUsed` |
 | Guest hold vs account hold | A guest hold is open to anyone with its id; an account hold only to its owner | `AccountRulesTest.guestHoldIsOpenToAnyoneButAnAccountHoldOnlyToItsOwner` |
+| A guest confirms with an email and phone in the body, as the payment page does | The booking stores both; a "Your SeatLock booking SL-…" email arrives at the guest's address with the reference, concert, venue, seat, total and site link | `guestGivesEmailAndPhoneWhenPayingAndGetsTheBookingEmail` |
+| A signed-in buyer confirms, sending a different contact email | The confirmation goes to the account's email (greeting by name), nothing to the other address; the booking stores no contact | `signedInBookingEmailsTheAccountAddressNotTheContactGiven` |
+| Confirm with email `not-an-email`, or phone `call me` | `400` and nothing is booked (the hold stays active); a valid pair then gets `201` | `guestContactDetailsAreValidatedBeforeAnythingIsBooked` |
+| An API client confirms without a body | Still `201`; the booking has no contact details and no email is sent | `confirmWithoutContactDetailsStillBooksForApiClients` |
+| Looking up a guest's booking by reference | The answer has no `contactEmail` or `contactPhone` and never contains the email | `bookingLookupNeverShowsTheGuestsContactDetails` |
 
 ## Manual scenarios: web client
 
@@ -260,8 +318,8 @@ http://localhost:8080:
 
 | # | Scenario | Steps | Expected |
 |---|---|---|---|
-| 1 | Home page | Open the page | "Quick, hassle-free concert tickets", "Find your next concert", a one-line description and a search box (no venue list); three boxes side by side, each with a count: **Today** (2 demo concerts starting a few hours after the app started), **Tomorrow** (*Sunset Acoustic Sessions* 19:30, *Neon Nights Live* 20:30) and **Selling fast** (6, first 5 shown, most sold first: *Late Night Jazz Sessions* 85%, *Tidewater* 72%, …, each with a bar); **Browse all 20 concerts** below |
-| 2 | Selling fast opens the concert | Click *Late Night Jazz Sessions* under **Selling fast** | Its page opens at the top (not below the home page) with "43 of 290 seats free" and Free 43, Held by others 0, Sold 247; only the free seats on the map can be clicked |
+| 1 | Home page | Open the page | "Quick, hassle-free concert tickets", "Find your next concert", a one-line description and a search box (no venue list); three blocks side by side with no concert details, only counts: **Today's concerts** 2, **Tomorrow's concerts** 2, **Selling fast** 6 (in red); **Browse all 20 concerts** below |
+| 2 | Selling fast opens the concert | Click **Selling fast**, then *Late Night Jazz Sessions* | Its page opens at the top (not below the home page) with "43 of 290 seats free" and Free 43, Held by others 0, Sold 247; only the free seats on the map can be clicked |
 | 3 | End stage | Open *The Placeholder Tour* | Stage at the top; Floor, Lower Bowl and Upper Bowl below it, row A nearest the stage |
 | 4 | Stage in the round | Open *Echo Circle Live* | Round stage in the middle; stands on all four sides and in the corners, each facing it |
 | 5 | Stadium | Open *Summer Stadium Fest* | Main stage at the north end, pitch seats in the middle, side stands facing inward; map zoomed to fit |
@@ -272,16 +330,16 @@ http://localhost:8080:
 | 10 | Zoom | On the stadium, click **+**, **−** and **Fit** | The map zooms in and out; **Fit** shows the whole venue again |
 | 11 | Select seats | Click 3 available seats | They turn purple; the panel lists them with prices and the total |
 | 12 | Seat limit | Try to select a 9th seat | Refused with "You can hold up to 8 seats at a time" |
-| 13 | Book now | Select seats, click **Book now** | Payment page opens: a 10:00 countdown (red in the last minute), the show, seats and total, **Pay** and **Cancel and go back** |
+| 13 | Book now | Logged out: select seats, click **Book now**, then **Continue as guest** | Payment page opens: a 10:00 countdown (red in the last minute), the order summary, **Your details** (email, phone), the demo payment form, **Pay now · $…** and **Cancel and go back** |
 | 14 | Reload during payment | Reload the page on the payment page | The payment page comes back with the same countdown |
-| 15 | Pay | Click **Pay** | "Booking confirmed" page with the reference (e.g. `SL-GUMGX3`); **Back to shows** opens the home page, and the show's seats are sold when you open it again |
+| 15 | Pay | Click **Use a test card**, then **Pay** | "Booking confirmed" page with the reference (e.g. `SL-GUMGX3`); **Back to shows** opens the home page, and the show's seats are sold when you open it again |
 | 16 | Find a booking | Enter the reference under **Find a booking** | The booking's seats and total appear; an unknown reference says no booking was found |
 | 17 | Cancel payment | On the payment page click **Cancel and go back** | Back on the seat map, "Booking cancelled"; the seats are available again |
 | 18 | Browser Back during payment | On the payment page press the browser's Back button | Same as cancelling: back on the seat map and the seats are available again |
 | 19 | Payment time runs out | Book, then wait 10 minutes without paying | Sent back to the seat map with "Time's up. Your seats were released"; the seats are available again. To try it quickly, start the app with `-Dspring-boot.run.arguments=--seatlock.holds.ttl=PT20S` |
 | 20 | Two buyers, same seats | In a normal and a private window, select the same seats; click **Book now** in one, then the other | The first gets the payment page; the second is told which seats were just taken |
 | 21 | Live updates | Book seats in one window and watch another window on the same show | Within 5 seconds the seats turn orange (held by others), then sold after payment or available again after a cancel |
-| 22 | Queued checkout | Select seats, click **Join the queue instead** | "You're in the queue…", then the payment page opens with a countdown |
+| 22 | Queued checkout | Select seats, click **Join the queue instead** (logged out: then **Continue as guest**) | "You're in the queue…", then the payment page opens with a countdown and **Your details** |
 | 23 | Rate limit | Run `for i in $(seq 10); do curl -s -o /dev/null -w '%{http_code} ' -X POST localhost:8080/api/holds/999999/confirm; done` | Five `404`s (unknown hold), then `429`s: the 6th checkout request within a second is refused |
 | 24 | Server down | Stop the app while the page is open | Within 5 seconds: "Could not reach SeatLock. Is the server running?" |
 | 25 | Phone width | Open the page on a phone or a narrow window | One column, no sideways page scroll; the seat map zooms to fit |
@@ -295,8 +353,16 @@ http://localhost:8080:
 | 33 | Nearly sold out | Book a show down to 20 or fewer seats (or 10% of the venue) | "Only N left" in red on its card and row |
 | 34 | Leave payment for the home page | On the payment page click the SeatLock logo | Home page, "Booking cancelled"; the seats are on sale again |
 | 35 | Home page on a phone | Narrow window | The three boxes stack (Today, Upcoming, Selling fast); rows stay readable; no sideways page scroll |
-| 37 | See all | Click **See all 6** under Selling fast | All 6; **Show less** folds it back to 5 |
-| 38 | Browse all | Click **Browse all 20 concerts** | "All concerts": every concert on sale in date order with venue, city, time and "from" price; **← Back** returns to the boxes |
+| 37 | Open a block | Click **Tomorrow's concerts** | Address `#tomorrow`; "Tomorrow's concerts" lists *Sunset Acoustic Sessions* and *Neon Nights Live* with date, venue, time and "from" price; **Selling fast** lists its 6 most sold first with "% sold" |
+| 38 | Browse all | Click **Browse all 20 concerts** | Address `#all`; every concert on sale in date order; **← Back** returns to the blocks |
+| 44 | Demo payment: real card refused | On the payment page enter a real-looking card, e.g. `4111 1111 1111 1111`, a future expiry and a CVC, then **Pay** | "This is a demo checkout, so only test cards work"; nothing is booked and the seats stay reserved |
+| 45 | Demo payment: declined | Enter `4000 0000 0000 0002`, then **Pay** | "Processing payment…" for about 1.5 seconds, then "Your card was declined"; the timer keeps running and you can try again |
+| 46 | Demo payment: insufficient funds | Enter `4000 0000 0000 9995` | "Your card has insufficient funds" |
+| 47 | Demo payment: form checks | Leave the name empty, use expiry `01/20`, or a 2-digit CVC | "Enter the name on the card", "Enter an expiry date in the future", "Enter the 3 or 4 digit CVC"; the number is spaced in fours and the brand (Visa, Mastercard…) shows under it |
+| 48 | Demo payment: approved card | **Use a test card**, then **Pay** | "Booking confirmed" with the reference and "Paid with Visa ending 4242 · demo payment, no money was taken" |
+| 49 | Demo payment: UPI | **UPI** tab: `someone@okbank`, then `failure@demo`, then `success@demo` | Refused (only test UPI IDs), then declined, then booked with "Paid with UPI (success@demo)" |
+| 50 | Card details stay in the browser | Open the browser's developer tools, Network tab, and pay with the test card | The only request sent when paying is `POST /api/holds/{id}/confirm`, with no body: no card or UPI details leave the page |
+| 43 | Block, concert, Back | Open **Tomorrow's concerts**, click a concert, then the browser's Back button | The concert opens with its live seat status; Back returns to the Tomorrow list, not the blocks |
 | 39 | What we offer | Scroll below the boxes | Four tiles: live seat maps, seats kept while you pay, book in seconds, fair on busy days |
 | 40 | Footer pages | Click **Help & support**, **Terms of use**, **Your data & privacy**, **Security** and **Payments** in the footer | Each opens its page (`#help` … `#payments`) with a side menu to the others and **← Back to concerts**; the text matches how SeatLock works (demo payment, no card details, BCrypt, 30-minute reset links) |
 | 41 | Footer on short pages | Open the log-in page on a tall window | The footer sits at the bottom of the window, not halfway up |
@@ -316,8 +382,16 @@ check real emails, set the `SPRING_MAIL_*` variables first (see the README).
 | A4 | Profile menu | Click **DF Demo** | Menu with name, email and phone, then **My bookings**, **Profile**, **Log out**; closes on Escape or a click elsewhere |
 | A5 | My bookings | Menu → **My bookings** | **Active (2)** with the opera and jazz bookings (show, venue, date, seats, total, reference); **Past (0)** |
 | A6 | Edit profile | Menu → **Profile**, change the name, **Save changes** | "Profile saved."; new initials and name in the corner |
-| A7 | Book while signed in | Pick seats, **Book now**, **Pay** | Confirmation says the booking is saved under My bookings; **View my bookings** lists it |
-| A8 | Book as a guest | Log out, book seats | Works as before; the cart suggests logging in first; the booking is not in anyone's My bookings |
+| A7 | Book while signed in | Pick seats, **Book now** | No question asked: the payment page opens, and **Your details** shows the account's name and email (nothing to type). After **Pay now**, the confirmation says the booking is saved under My bookings and emailed to the account's address; **View my bookings** lists it |
+| A8 | Book as a guest | Log out, pick seats, **Book now** | "How would you like to book?" with three buttons: **Log in**, **Sign up**, **Continue as guest**, and no form fields. **Continue as guest** opens the payment page with **Your details** (email, phone). Fill them in, use a test card, **Pay now**: "Booking details are emailed to …"; the booking is not in anyone's My bookings |
+| A18 | Opening the site | Open `http://localhost:8080` (logged out) | The home page, not the log-in page; nothing asks you to log in until you book |
+| A19 | Guest details checked | On the payment page as a guest, **Pay now** with no email; then email `guest.fan@example.com` and phone `call me` | "Enter your email address, so we can send your booking details." (cursor in Email), then "Enter your phone number, such as +44 20 7946 0000." (cursor in Phone); no payment is attempted and the timer keeps running |
+| A20 | Log in from Book now | Pick seats, **Book now** → **Log in**, log in with the demo account | Back on the concert with the same seats, and straight on to the payment page |
+| A21 | Sign up from Book now | Pick seats, **Book now** → **Sign up**, create an account | Signed in, then straight on to the payment page with the same seats |
+| A22 | Close the question | **Book now**, then × or Escape | The dialog closes; the seats stay selected; nothing is held |
+| A23 | Guest confirmation email | With SMTP set up, book as a guest with your own email | "Your SeatLock booking SL-…" arrives with the reference, concert, venue, time (UTC), seats and total |
+| A24 | Left payment, came back later | Book now, then open `http://localhost:8080` in the same browser | The home page opens (not the payment page) and those seats are released straight away |
+| A25 | Reload the payment page | On the payment page, reload | The payment page comes back with the same countdown |
 | A9 | Sign up | **Sign up** with name, email, phone, password | Signed in straight away; welcome email arrives (with SMTP set up) |
 | A10 | Duplicate sign-up | Sign up again with the same email | "An account with this email already exists…" |
 | A11 | Forgot password | **Log in** → **Forgot password?**, enter your email | "Check your email"; the reset email arrives within a minute (with SMTP set up) |
@@ -354,7 +428,9 @@ sold all 5,000 seats with 0 failures and 0 seats sold twice (see the README for 
 
 - **The web client has no automated browser tests.** Its scenarios above are checked by hand.
 - **Real SMTP delivery** is not part of the test suite (GreenMail stands in for the mail server).
-  Check it by hand with scenarios A9, A11 and A12 once `SPRING_MAIL_*` is set.
+  Check it by hand with scenarios A9, A11, A12 and A23 once `SPRING_MAIL_*` is set.
+- **Text messages:** guests give a phone number, but SeatLock has no SMS provider, so booking
+  details go by email only.
 - **Sessions after a password reset:** other sessions of that account stay signed in until they
   time out (2 hours idle).
 - **MySQL** is not exercised by the test suite; the tests run on H2 in MySQL mode. Run the app

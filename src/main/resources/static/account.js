@@ -2,7 +2,9 @@
 // and My bookings. Loaded after app.js and uses its helpers (el, api, toast, state, showPage, ...).
 // Accounts are optional: guests can still book.
 
-const PHONE_PATTERN = "\\+?[0-9 ()\\-]{7,20}";
+// Browsers compile pattern attributes with the "v" flag, where ( ) and - must be escaped inside [...];
+// an invalid pattern is silently ignored, so keep every one of them escaped.
+const PHONE_PATTERN = "\\+?[0-9 \\(\\)\\-]{7,20}";
 
 // ---- who is signed in ----------------------------------------------------
 
@@ -123,6 +125,43 @@ function showAuth(title, subtitle, body, footer = []) {
 }
 
 // After logging in or signing up, go back to where the buyer was.
+// ---- book as guest or log in ---------------------------------------------
+
+// Book now (and Join the queue) first ask how to book: Log in, Sign up, or Continue as guest.
+// A guest gives their email and phone number on the payment page, just before Pay now.
+// Signed-in buyers go straight on.
+function askHowToBook(action) {
+    const run = action === "queue" ? queueSeats : bookNow;
+    if (state.me) return run();
+    document.getElementById("book-dialog")?.remove();
+
+    const goToAuth = target => {
+        dialog.close();
+        state.resumeBooking = action;
+        state.afterLogin = `#event-${state.event.id}`;
+        location.hash = target;
+    };
+    const asGuest = () => {
+        dialog.close();
+        run();
+    };
+    const dialog = el("dialog", { id: "book-dialog", class: "book-dialog", "aria-labelledby": "book-dialog-title" },
+        el("div", { class: "dialog-head" },
+            el("h2", { id: "book-dialog-title" }, "How would you like to book?"),
+            el("button", { class: "dialog-close", type: "button", "aria-label": "Close", onclick: () => dialog.close() }, "×")),
+        el("div", { class: "book-option-actions" },
+            el("button", { class: "btn", type: "button", onclick: () => goToAuth("#login") }, "Log in"),
+            el("button", { class: "btn secondary", type: "button", onclick: () => goToAuth("#register") }, "Sign up")),
+        el("p", { class: "muted small" }, "Keep every ticket in My bookings. Your seats stay selected while you log in."),
+        el("div", { class: "or" }, el("span", {}, "or")),
+        el("button", { class: "btn secondary guest-button", type: "button", onclick: asGuest }, "Continue as guest"),
+        el("p", { class: "muted small" }, "No account needed: just your email and phone number on the next page."));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    dialog.querySelector(".guest-button").focus();
+}
+
 function leaveAuth() {
     const target = state.afterLogin || (state.event ? `#event-${state.event.id}` : "");
     state.afterLogin = null;
@@ -363,7 +402,11 @@ function route() {
         // A show (#event-N) or the home page. Leaving the payment page is handled by its popstate listener.
         const event = state.events.find(e => `#event-${e.id}` === hash);
         if (event) openEvent(event);
-        else showHome();
+        else showHome(homeListOf(hash));
+        // Back from logging in after Book now: carry on with the seats still selected.
+        const action = state.resumeBooking;
+        state.resumeBooking = null;
+        if (action && event && state.me && state.selected.size > 0) askHowToBook(action);
         return;
     }
     if (state.hold && !$("checkout-view").hidden) releaseHoldBeforeLeaving();
@@ -388,7 +431,15 @@ window.addEventListener("hashchange", route);
 
 (async () => {
     await Promise.all([loadMe(), loadEvents()]);
+    // Opening SeatLock always starts on the page in the address (the home page for a plain link).
+    // Only a reload of the payment page goes back to the seats still being paid for.
     const savedHoldId = storage("get", "seatlock.holdId");
-    if (savedHoldId && await restoreHold(savedHoldId)) return;
+    if (location.hash === "#checkout" && savedHoldId && await restoreHold(savedHoldId)) return;
+    if (location.hash === "#checkout") history.replaceState(null, "", location.pathname);
+    // Seats from a payment that was left unfinished go back on sale instead of waiting out the timer.
+    if (savedHoldId && !state.hold) {
+        storage("remove", "seatlock.holdId");
+        api(`/api/holds/${savedHoldId}`, { method: "DELETE" }).catch(() => { /* it lapses on its own anyway */ });
+    }
     route();
 })();

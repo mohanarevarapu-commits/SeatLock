@@ -274,7 +274,28 @@ Releases an active hold early and frees its seats. Returns the hold with `status
 ### `POST /api/holds/{id}/confirm`
 
 Turns an active hold into a booking. Call this after payment succeeds; SeatLock does not take
-payment itself.
+payment itself. The web client's payment page is a demo that runs in the browser (test cards and
+UPI IDs only) and calls this endpoint once the demo payment is approved; no card details are
+sent.
+
+Optional JSON body, a guest's contact details from the payment page:
+
+| Field | Type | Rules |
+|---|---|---|
+| `contactEmail` | string | optional, a valid email, max 254 chars. Where the booking confirmation email goes |
+| `contactPhone` | string | optional, 7 to 20 digits, spaces, brackets and dashes, may start with `+` |
+
+```bash
+curl -s -X POST localhost:8080/api/holds/1/confirm -H 'Content-Type: application/json' -d '{
+  "contactEmail": "guest.fan@example.com", "contactPhone": "+44 20 7946 0000"
+}'
+```
+
+The web client always sends them for guests; API clients may leave the body out. After the
+booking commits, its details are emailed to the signed-in buyer's account email, or else to
+`contactEmail` (nothing is sent if there is neither). For a signed-in buyer the body is ignored.
+Contact details are stored with the booking and never returned by the API. An invalid email or
+phone gets `400` and nothing is booked.
 
 `201 Created`, `Location: /api/bookings/SL-ZR59YX`
 

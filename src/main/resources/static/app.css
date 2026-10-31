@@ -159,50 +159,26 @@ h3 { font-size: 1rem; margin-bottom: 10px; }
 .search:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 .home-section { display: grid; gap: 14px; max-width: 980px; width: 100%; margin: 0 auto; }
 .home-section h2 { font-size: 1.15rem; }
-.home-boxes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.home-box {
+/* The three home blocks: Today's concerts, Tomorrow's concerts, Selling fast. */
+.home-blocks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 980px; width: 100%; margin: 0 auto; }
+.home-block {
     display: grid;
-    gap: 6px;
-    padding: 16px 12px 10px;
-    border-radius: 14px;
+    gap: 2px;
+    padding: 22px 22px 18px;
+    border-radius: 16px;
     border: 1px solid var(--border);
     background: var(--surface);
-    box-shadow: var(--shadow);
-}
-.home-box-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 6px; }
-.home-box-head h2 { font-size: 1.05rem; }
-.count { font-size: 0.78rem; font-weight: 600; padding: 1px 9px; border-radius: 999px; background: var(--bg); color: var(--muted); }
-.home-box .empty { padding: 8px 6px 12px; }
-.box-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.box-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 6px;
-    border-radius: 10px;
     color: var(--text);
     text-decoration: none;
+    box-shadow: var(--shadow);
+    transition: border-color 0.15s, transform 0.15s;
 }
-.box-list li + li .box-row { border-top: 1px solid var(--border); border-radius: 0; }
-.box-row:hover { background: var(--bg); border-radius: 10px; }
-.box-row .show-main strong { font-size: 0.95rem; line-height: 1.3; }
-.box-row .show-main .muted { font-size: 0.82rem; }
-.box-row .show-side { font-size: 0.82rem; }
-.date-tile.time { width: 52px; }
-.date-tile.time strong { font-size: 1rem; color: var(--accent); font-variant-numeric: tabular-nums; }
-.see-all {
-    margin-top: 2px;
-    padding: 8px;
-    border: 0;
-    border-radius: 8px;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    font-size: 0.88rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-.see-all:hover { background: var(--bg); }
+.home-block:hover { border-color: var(--accent); transform: translateY(-2px); }
+.block-title { font-weight: 700; font-size: 1.05rem; }
+.block-count { font-size: 2.6rem; line-height: 1.1; margin-top: 10px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.home-block.hot .block-count { color: var(--danger); }
+.block-hint { margin-top: 14px; font-size: 0.88rem; font-weight: 600; color: var(--accent); }
+.list-head .back-link { font-size: 0.92rem; }
 .browse-all { display: flex; justify-content: center; margin-top: 18px; }
 .list-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
@@ -254,8 +230,6 @@ h3 { font-size: 1rem; margin-bottom: 10px; }
 .info-card section p { margin: 0; line-height: 1.6; }
 .note { font-size: 0.78rem; font-weight: 600; }
 .note.hot { color: var(--danger); }
-.meter { display: block; height: 4px; border-radius: 999px; background: var(--bg); overflow: hidden; margin-top: 5px; }
-.meter span { display: block; height: 100%; background: var(--danger); border-radius: inherit; }
 .show-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .show-row {
     display: flex;
@@ -394,6 +368,75 @@ button.seat:disabled { cursor: not-allowed; }
 .timer-card .timer { font-size: 2.6rem; margin: 2px 0 6px; }
 .confirmation { text-align: center; display: grid; gap: 6px; }
 .confirmation .cart-lines, .confirmation .total { text-align: left; }
+
+/* "How would you like to book?": log in / sign up, or continue as a guest (account.js). */
+.book-dialog {
+    width: min(460px, calc(100% - 32px));
+    padding: 22px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.book-dialog::backdrop { background: rgba(10, 10, 20, 0.6); }
+.dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.dialog-head h2 { font-size: 1.2rem; }
+.dialog-close {
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.dialog-close:hover { color: var(--text); }
+.book-option-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.book-dialog > .muted.small { margin: 8px 0 0; }
+.guest-button { width: 100%; }
+.or { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--muted); font-size: 0.85rem; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* Demo payment form (payment.js). */
+.payment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.payment-head h3 { margin: 0; }
+.demo-badge {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--stage);
+    color: var(--stage-text);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.checkout-form { display: grid; gap: 16px; }
+.details-card { display: grid; gap: 12px; }
+.details-card h3, .details-card p { margin: 0; }
+.payment-card > .muted.small { margin: 6px 0 14px; }
+.pay-form .tabs { margin-bottom: 0; }
+.pay-panel { display: grid; gap: 14px; }
+.field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.card-brand { font-size: 0.8rem; color: var(--muted); min-height: 1em; }
+.card-brand:empty { display: none; }
+.link-button {
+    justify-self: start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.link-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.test-details { font-size: 0.85rem; color: var(--muted); }
+.test-details summary { cursor: pointer; color: var(--text); font-weight: 600; }
+.test-details ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.test-details code { font-family: ui-monospace, Menlo, monospace; font-size: 0.82rem; color: var(--text); }
+.pay-button.processing { cursor: progress; }
 /* Log in, sign up and password pages. */
 .auth { max-width: 420px; margin: 24px auto; }
 .auth-card h1 { margin-bottom: 4px; }
@@ -507,7 +550,7 @@ a { color: var(--accent); }
     .avatar-name { display: none; }
     .avatar-button { padding: 3px; }
     .show-row .show-side .muted { display: none; }
-    .home-boxes { grid-template-columns: minmax(0, 1fr); }
+    .home-blocks { grid-template-columns: minmax(0, 1fr); }
     .offer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .info { grid-template-columns: minmax(0, 1fr); }
     .info-nav { position: static; display: flex; flex-wrap: wrap; }

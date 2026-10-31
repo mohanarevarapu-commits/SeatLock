@@ -7,9 +7,10 @@ requests arrive at the same moment.
 
 All venues, events and customers in this project are fictional.
 
-**Personal data.** Accounts are optional. Guests book with only an opaque `customerRef` token.
-Buyers who create an account give their name, email and (optionally) a phone number; that is the
-only personal data SeatLock stores. Passwords are stored only as BCrypt hashes, reset links only
+**Personal data.** Accounts are optional. Buyers who create an account give their name, email
+and (optionally) a phone number. Guests give an email and phone number when they pay, so the
+booking details can be sent to them; these are kept with that booking. That is the only personal
+data SeatLock stores. Passwords are stored only as BCrypt hashes, reset links only
 as SHA-256 hashes, and SeatLock never asks for or stores card details.
 
 ## Tech stack
@@ -60,14 +61,18 @@ sold), so **Selling fast** is filled too.
 
 ### Web client
 
+Test logins, guest details, test cards and UPI IDs are listed in
+[docs/TESTING.md](docs/TESTING.md#test-accounts-and-test-data).
+
 The page at `/` lets you buy tickets in a browser:
 
 - The home page is about the concerts: a short description of SeatLock ("quick, hassle-free
-  concert tickets"), a search box (concert, venue or city) and three boxes side by side (stacked
-  on a phone): **Today** and **Tomorrow** (time, concert and venue) and **Selling fast**
-  (concerts with at least 40% of seats gone, most sold first, with "% sold" and a bar). Each box
-  shows 5 rows and **See all** for the rest. **Browse all concerts**, or searching, shows one list
-  of every concert on sale with dates and "from" prices.
+  concert tickets"), a search box (concert, venue or city) and three blocks side by side (stacked
+  on a phone): **Today's concerts**, **Tomorrow's concerts** and **Selling fast** (at least 40%
+  of seats gone). The blocks show only how many concerts each has, no details. Clicking a block
+  opens its list (`#today`, `#tomorrow`, `#selling-fast`) with dates, venues and "from" prices
+  (Selling fast also shows "% sold", most sold first). **Browse all concerts** (`#all`), or
+  searching, lists every concert on sale.
 - Below that, **What we offer** (live seat maps, seats kept while you pay, booking in seconds,
   fairness on busy days), and a footer on every page linking to **Help & support**, **Terms of
   use**, **Your data & privacy**, **Security** and **Payments** (`#help`, `#terms`, `#privacy`,
@@ -81,10 +86,22 @@ The page at `/` lets you buy tickets in a browser:
 - The map is drawn from the venue's layout: the stage sits where it really is (at one end, in the
   middle, on a side or in a corner) and every section faces it, with row A nearest the stage.
   Large venues are zoomed to fit; use **−**, **+** and **Fit** to zoom.
-- **Book now** opens the payment page and keeps the seats for 10 minutes (behind the scenes this
+- **Book now** asks whether to **Log in**, **Sign up** or **Continue as guest** (see
+  [Accounts](#accounts)), then opens the payment page and keeps the seats for 10 minutes (behind the scenes this
   is a hold, so nobody else can take them while you pay). The page shows a countdown, the order
-  summary and **Pay**, which confirms the booking and shows its reference. Payment is a demo: no
-  money is taken and no card details are asked for.
+  summary and a **demo payment form** with **Card** and **UPI** tabs. No money is taken, and only
+  test details work; anything else, including a real card, is refused. Card and UPI details are
+  checked in the browser and never sent to the server.
+
+  | Test detail | Result |
+  |---|---|
+  | Card `4242 4242 4242 4242` or `5555 5555 5555 4444`, any future expiry, any CVC | Approved: the booking is confirmed |
+  | Card `4000 0000 0000 0002` | Declined; the seats stay reserved, try again |
+  | Card `4000 0000 0000 9995` | Insufficient funds |
+  | UPI `success@demo` / `failure@demo` | Approved / declined |
+
+  **Use a test card** fills the card in. After a short "Processing payment…" step, an approved
+  payment confirms the booking and shows its reference and how it was paid.
 - **Cancel and go back**, or the browser's Back button, releases the seats at once. If the
   countdown runs out, you are sent back to the seat map and the seats go back on sale.
 - **Join the queue instead** books through the queued checkout and opens the same payment page
@@ -98,7 +115,17 @@ reloading during payment returns to the payment page with the same countdown.
 ### Accounts
 
 Buyers can sign up, log in, and find all their bookings under **My bookings**. Accounts are
-optional: guests can still browse and book exactly as before.
+optional: anyone can browse, and opening the site never asks you to log in.
+
+- **Book now** asks "How would you like to book?" with three buttons: **Log in**, **Sign up**
+  (either way you come back to the same seats and go straight on to payment) and **Continue as
+  guest**. Signed-in buyers go straight to payment.
+- **Guest routine:** **Continue as guest** → the payment page asks for **Your details** (email
+  and phone number) above the card / UPI form → **Pay now**. Pay now checks the details first,
+  then the payment, then books the seats.
+- After paying, the booking details are emailed: to the account's email, or to the guest's email
+  ("Your SeatLock booking SL-…" with the concert, venue, time, seats and total). The phone number
+  is kept with the booking; there is no text-message service.
 
 - **Sign up / Log in** in the top-right corner. Once signed in, the corner shows the buyer's
   initials and first name; its menu shows their name, email and phone, and links to **My
@@ -285,7 +312,7 @@ Performance notes:
 ## Project layout
 
 ```
-src/main/resources/static/  Web client: index.html, app.js, account.js, info.js, app.css
+src/main/resources/static/  Web client: index.html, app.js, payment.js, account.js, info.js, app.css
 src/main/java/com/seatlock
 ├── config/        Clock, OpenAPI, hold/queue/rate-limit settings, demo data seeder
 ├── controller/    REST endpoints

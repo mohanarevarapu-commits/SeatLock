@@ -18,10 +18,10 @@ const state = {
     countdownTimer: null,
     query: "",
     eventsLoadedAt: 0,
-    openBoxes: new Set(),             // home boxes expanded with "See all"
-    browseAll: false,                 // home page showing the full list instead of the boxes
+    homeList: null,                   // the home block that is open (a HOME_LISTS key), or null for the blocks
     zoom: 1,
     me: null,                         // the signed-in account, or null for a guest (see account.js)
+    resumeBooking: null,              // "book" or "queue" to continue after logging in from Book now
 };
 
 const customerRef = loadCustomerRef();
@@ -111,7 +111,6 @@ function explain(error) {
 // ---- home page -----------------------------------------------------------
 
 const SELLING_FAST_SHARE = 0.4;       // a concert is selling fast once this share of its seats is gone
-const BOX_ROWS = 5;                   // rows per home box before "See all"
 
 async function loadEvents() {
     try {
@@ -124,8 +123,44 @@ async function loadEvents() {
     if (!$("home-view").hidden) renderHome();
 }
 
-function showHome() {
+// The home page shows three blocks; each opens its own list (#today, #tomorrow, #selling-fast),
+// and #all lists every concert on sale. The address keeps the browser's Back button working.
+const HOME_LISTS = {
+    today: {
+        title: "Today's concerts",
+        hint: "Tonight's line-up",
+        empty: "No more concerts today.",
+        pick: onSale => onSale.filter(e => isSameDay(e.startsAt, dayFromNow(0))),
+    },
+    tomorrow: {
+        title: "Tomorrow's concerts",
+        hint: "Plan your night out",
+        empty: "No concerts tomorrow.",
+        pick: onSale => onSale.filter(e => isSameDay(e.startsAt, dayFromNow(1))),
+    },
+    "selling-fast": {
+        title: "Selling fast",
+        hint: "Over 40% of seats gone",
+        empty: "Nothing is close to selling out.",
+        pick: onSale => onSale.filter(e => e.availableSeats > 0 && soldShare(e) >= SELLING_FAST_SHARE)
+            .sort((a, b) => soldShare(b) - soldShare(a)),
+        sold: true,
+    },
+    all: {
+        title: "All concerts",
+        empty: "No concerts on sale.",
+        pick: onSale => onSale,
+    },
+};
+
+function homeListOf(hash) {
+    const key = hash.slice(1);
+    return Object.hasOwn(HOME_LISTS, key) ? key : null;
+}
+
+function showHome(list = null) {
     state.event = null;
+    state.homeList = list;
     clearInterval(state.refreshTimer);
     showPage("home");
     renderHome();
@@ -136,15 +171,6 @@ function showHome() {
 function typeLabel(type) {
     const text = type.replaceAll("_", " ").toLowerCase();
     return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function shortDate(iso) {
-    return new Date(iso).toLocaleString(undefined,
-        { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-function timeOnly(iso) {
-    return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 function soldShare(event) {
@@ -169,6 +195,12 @@ function availabilityNote(event) {
     return null;
 }
 
+function dayFromNow(days) {
+    const day = new Date();
+    day.setDate(day.getDate() + days);
+    return day;
+}
+
 function renderHome() {
     const box = $("home-sections");
     if (state.events.length === 0) {
@@ -178,77 +210,43 @@ function renderHome() {
     const now = Date.now();
     const onSale = state.events.filter(e => new Date(e.startsAt) > now);
 
-    // Searching, or Browse all: one plain list.
-    if (state.query.trim() || state.browseAll) {
+    // Searching: one plain list of what matches.
+    if (state.query.trim()) {
         const shows = onSale.filter(matchesSearch);
-        const title = state.query.trim() ? `${shows.length} ${shows.length === 1 ? "concert" : "concerts"}` : "All concerts";
-        return box.replaceChildren(el("section", { class: "home-section" },
-            el("div", { class: "list-head" }, el("h2", {}, title),
-                state.browseAll && !state.query.trim() ? el("button", {
-                    class: "see-all", type: "button", onclick: () => { state.browseAll = false; renderHome(); },
-                }, "← Back") : null),
-            shows.length > 0 ? showList(shows)
-                : el("p", { class: "muted" }, "Nothing matches. Try another concert, venue or city.")));
+        return box.replaceChildren(listSection(`${shows.length} ${shows.length === 1 ? "concert" : "concerts"}`, shows,
+            "Nothing matches. Try another concert, venue or city.", false, false));
     }
 
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const today = onSale.filter(e => isSameDay(e.startsAt, new Date()));
-    const nextDay = onSale.filter(e => isSameDay(e.startsAt, tomorrow));
-    const sellingFast = onSale
-        .filter(e => e.availableSeats > 0 && soldShare(e) >= SELLING_FAST_SHARE)
-        .sort((a, b) => soldShare(b) - soldShare(a));
-    const timeRow = event => [
-        el("span", { class: "date-tile time" }, el("strong", {}, timeOnly(event.startsAt))),
-        boxMain(event, event.venueName),
-        availabilityNote(event),
-    ];
+    // A block was opened: its concerts, with details.
+    if (state.homeList) {
+        const list = HOME_LISTS[state.homeList];
+        return box.replaceChildren(listSection(list.title, list.pick(onSale), list.empty, list.sold, true));
+    }
+
+    // The start page: three blocks, no concert details.
+    const blocks = ["today", "tomorrow", "selling-fast"].map(key => {
+        const list = HOME_LISTS[key];
+        const count = list.pick(onSale).length;
+        return el("a", { class: "home-block" + (key === "selling-fast" ? " hot" : ""), href: `#${key}` },
+            el("span", { class: "block-title" }, list.title),
+            el("strong", { class: "block-count" }, String(count)),
+            el("span", { class: "muted" }, count === 1 ? "concert" : "concerts"),
+            el("span", { class: "block-hint" }, list.hint, el("span", { "aria-hidden": "true" }, " →")));
+    });
     box.replaceChildren(
-        el("div", { class: "home-boxes" },
-            homeBox("today", "Today", today, "No more concerts today.", timeRow),
-            homeBox("tomorrow", "Tomorrow", nextDay, "No concerts tomorrow.", timeRow),
-            homeBox("fast", "Selling fast", sellingFast, "Nothing is close to selling out.", event => {
-                const sold = Math.round(soldShare(event) * 100);
-                return [
-                    dateTile(event),
-                    boxMain(event, null, el("span", { class: "meter", role: "img", "aria-label": `${sold}% of seats sold` },
-                        el("span", { style: `width: ${sold}%` }))),
-                    el("span", { class: "note hot" }, `${sold}% sold`),
-                ];
-            })),
-        el("div", { class: "browse-all" }, el("button", {
-            class: "btn secondary", type: "button", onclick: () => { state.browseAll = true; renderHome(); },
-        }, `Browse all ${onSale.length} concerts`)));
+        el("div", { class: "home-blocks" }, blocks),
+        el("div", { class: "browse-all" },
+            el("a", { class: "btn secondary", href: "#all" }, `Browse all ${onSale.length} concerts`)));
 }
 
-// One of the three home boxes: the first few concerts, and "See all" for the rest.
-function homeBox(key, title, shows, emptyText, row) {
-    const open = state.openBoxes.has(key);
-    const shown = open ? shows : shows.slice(0, BOX_ROWS);
-    return el("section", { class: "home-box" },
-        el("div", { class: "home-box-head" }, el("h2", {}, title), el("span", { class: "count" }, String(shows.length))),
-        shows.length === 0 ? el("p", { class: "muted small empty" }, emptyText)
-            : el("ul", { class: "box-list" }, shown.map(event =>
-                el("li", {}, el("a", { class: "box-row", href: `#event-${event.id}` }, row(event))))),
-        shows.length > BOX_ROWS ? el("button", {
-            class: "see-all", type: "button",
-            onclick: () => { open ? state.openBoxes.delete(key) : state.openBoxes.add(key); renderHome(); },
-        }, open ? "Show less" : `See all ${shows.length}`) : null);
+function listSection(title, shows, emptyText, sold, withBack) {
+    return el("section", { class: "home-section" },
+        el("div", { class: "list-head" }, el("h2", {}, title),
+            withBack ? el("a", { class: "back-link", href: "#" }, "← Back") : null),
+        shows.length > 0 ? showList(shows, sold) : el("p", { class: "muted" }, emptyText));
 }
 
-function dateTile(event) {
-    const date = new Date(event.startsAt);
-    return el("span", { class: "date-tile" },
-        el("span", {}, date.toLocaleString(undefined, { month: "short" })),
-        el("strong", {}, String(date.getDate())));
-}
-
-function boxMain(event, line, extra) {
-    return el("span", { class: "show-main" }, el("strong", {}, event.name),
-        line ? el("span", { class: "muted" }, line) : null, extra);
-}
-
-function showList(shows) {
+function showList(shows, sold = false) {
     return el("ul", { class: "show-list" }, shows.map(event => {
         const date = new Date(event.startsAt);
         return el("li", {}, el("a", { class: "show-row", href: `#event-${event.id}` },
@@ -261,7 +259,8 @@ function showList(shows) {
                     `${event.venueName}, ${event.venueCity} · ${date.toLocaleString(undefined,
                         { weekday: "short", hour: "2-digit", minute: "2-digit" })}`)),
             el("span", { class: "show-side" },
-                availabilityNote(event) || el("span", { class: "muted small" }, typeLabel(event.venueType)),
+                sold ? el("span", { class: "note hot" }, `${Math.round(soldShare(event) * 100)}% sold`)
+                    : availabilityNote(event) || el("span", { class: "muted small" }, typeLabel(event.venueType)),
                 el("span", {}, `From ${money(event.fromPriceCents)}`))));
     }));
 }
@@ -498,11 +497,11 @@ function renderCart() {
         seatLines(seats.map(s => ({ section: s.section, label: s.label, priceCents: s.priceCents }))),
         el("div", { class: "total" }, el("span", {}, "Total"), el("span", {}, money(total))),
         el("div", { class: "actions" },
-            el("button", { class: "btn", type: "button", disabled: state.busy, onclick: bookNow }, "Book now"),
+            el("button", { class: "btn", type: "button", disabled: state.busy,
+                onclick: () => askHowToBook("book") }, "Book now"),
             el("p", { class: "muted small" }, "Your seats are kept for 10 minutes while you pay."),
-            state.me ? null : el("p", { class: "muted small" },
-                el("a", { href: "#login" }, "Log in"), " first to keep this booking in My bookings."),
-            el("button", { class: "btn secondary", type: "button", disabled: state.busy, onclick: queueSeats,
+            el("button", { class: "btn secondary", type: "button", disabled: state.busy,
+                onclick: () => askHowToBook("queue"),
                 title: "Uses the queued checkout meant for peak traffic" }, "Join the queue instead"),
             el("button", { class: "btn secondary", type: "button", disabled: state.busy,
                 onclick: () => { state.selected.clear(); paintSeats(); renderCart(); } }, "Clear selection")));
@@ -538,13 +537,18 @@ async function withBusy(action) {
 
 // Book now reserves the seats (a hold) and opens the payment page. The hold is what stops anyone
 // else taking the seats while this buyer pays; if payment is not done in time it lapses on the
-// server and the seats go back on sale.
+// server and the seats go back on sale. askHowToBook (account.js) decides first whether the buyer
+// logs in or continues as a guest.
+function holdRequest() {
+    return JSON.stringify({ customerRef, eventSeatIds: [...state.selected] });
+}
+
 function bookNow() {
     return withBusy(async () => {
         try {
             const hold = await api(`/api/events/${state.event.id}/holds`, {
                 method: "POST",
-                body: JSON.stringify({ customerRef, eventSeatIds: [...state.selected] }),
+                body: holdRequest(),
             });
             state.selected.clear();
             openCheckout(hold);
@@ -572,7 +576,7 @@ function queueSeats() {
         try {
             request = await api(`/api/events/${state.event.id}/purchase-requests`, {
                 method: "POST",
-                body: JSON.stringify({ customerRef, eventSeatIds: [...state.selected] }),
+                body: holdRequest(),
             });
         } catch (error) {
             toast(explain(error), true);
@@ -636,25 +640,22 @@ function renderCheckout() {
             el("p", { class: "muted" }, `${event.venueName}, ${event.venueCity} · ${dateTime(event.startsAt)}`),
             seatLines(hold.seats),
             el("div", { class: "total" }, el("span", {}, "Total"), el("span", {}, money(hold.totalCents)))),
-        el("div", { class: "card" },
-            el("h3", {}, "Payment"),
-            el("p", { class: "muted small" },
-                "Demo checkout: SeatLock takes no real payment and asks for no card details. Pay completes the booking."),
-            el("div", { class: "actions" },
-                el("button", { class: "btn", type: "button", disabled: state.busy, onclick: pay },
-                    `Pay ${money(hold.totalCents)}`),
-                el("button", { class: "btn danger", type: "button", disabled: state.busy, onclick: cancelCheckout },
-                    "Cancel and go back")))));
+        checkoutForm(hold)));           // Your details and the demo card / UPI payment, in payment.js
 }
 
-function renderConfirmation(booking) {
+function renderConfirmation(booking, paidWith, contact) {
     const event = state.events.find(e => e.id === booking.eventId);
     $("checkout-view").replaceChildren(el("div", { class: "checkout" },
         el("div", { class: "card confirmation" },
             el("h2", {}, "Booking confirmed 🎉"),
             el("p", { class: "muted" }, `${event.name} · ${event.venueName} · ${dateTime(event.startsAt)}`),
             ...bookingView(booking),
-            state.me ? el("p", { class: "muted small" }, "This booking is saved under My bookings.") : null,
+            paidWith ? el("p", { class: "muted small" }, `Paid with ${paidWith} · demo payment, no money was taken`) : null,
+            state.me ? el("p", { class: "muted small" },
+                `This booking is saved under My bookings, and the details are emailed to ${state.me.email}.`)
+                : contact ? el("p", { class: "muted small" },
+                    `Booking details are emailed to ${contact.contactEmail}. Keep the reference to look the booking up later.`)
+                    : null,
             state.me ? el("a", { class: "btn secondary", href: "#bookings" }, "View my bookings") : null,
             el("a", { class: "btn", href: "#" }, "Back to shows"))));
 }
@@ -698,13 +699,18 @@ function backToSeatMap() {
     refreshSeatMap();
 }
 
-async function pay() {
+// Called by the payment form (payment.js) once the demo payment is approved: books the held seats.
+// A guest's { contactEmail, contactPhone } go with it; the confirmation email is sent there.
+async function confirmBooking(paidWith, contact = null) {
     if (state.busy) return;
     state.busy = true;
     renderCheckout();
     let booking;
     try {
-        booking = await api(`/api/holds/${state.hold.id}/confirm`, { method: "POST" });
+        booking = await api(`/api/holds/${state.hold.id}/confirm`, {
+            method: "POST",
+            body: contact ? JSON.stringify(contact) : undefined,
+        });
     } catch (error) {
         state.busy = false;
         if (error instanceof ApiError && (error.status === 410 || error.status === 409)) {
@@ -721,7 +727,7 @@ async function pay() {
     state.busy = false;
     setHold(null);
     history.replaceState(null, "", `#event-${booking.eventId}`);
-    renderConfirmation(booking);
+    renderConfirmation(booking, paidWith, contact);
 }
 
 async function cancelCheckout() {
@@ -744,8 +750,8 @@ window.addEventListener("popstate", () => {
     if (location.hash.startsWith("#event-")) {
         if (state.hold) cancelCheckout();
         else if (!$("checkout-view").hidden) backToSeatMap();
-    } else if ((location.hash === "" || isInfoRoute(location.hash)) && state.hold) {
-        releaseHoldBeforeLeaving();   // off to the home or a help page; route() shows it
+    } else if ((location.hash === "" || homeListOf(location.hash) || isInfoRoute(location.hash)) && state.hold) {
+        releaseHoldBeforeLeaving();   // off to the home page, a list or a help page; route() shows it
     }
 });
 

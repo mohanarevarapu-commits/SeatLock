@@ -113,7 +113,7 @@ class HoldControllerTest {
 
     @Test
     void confirmReturns201WithBookingLocation() throws Exception {
-        given(bookingService.confirmHold(eq(42L), isNull())).willReturn(new BookingResponse("SL-ABC234", 42L, 1L, 5_000,
+        given(bookingService.confirmHold(eq(42L), isNull(), isNull())).willReturn(new BookingResponse("SL-ABC234", 42L, 1L, 5_000,
                 EXPIRES, List.of()));
 
         mvc.perform(post("/api/holds/42/confirm"))
@@ -123,7 +123,7 @@ class HoldControllerTest {
 
     @Test
     void confirmingAnExpiredHoldReturns410() throws Exception {
-        given(bookingService.confirmHold(eq(42L), isNull())).willThrow(new HoldExpiredException(42L));
+        given(bookingService.confirmHold(eq(42L), isNull(), isNull())).willThrow(new HoldExpiredException(42L));
 
         mvc.perform(post("/api/holds/42/confirm")).andExpect(status().isGone());
     }

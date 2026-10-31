@@ -13,7 +13,7 @@
 
     <groupId>com.seatlock</groupId>
     <artifactId>seatlock</artifactId>
-    <version>0.6.0</version>
+    <version>0.8.0</version>
     <name>SeatLock</name>
     <description>High-concurrency concert ticket reservation engine</description>
 

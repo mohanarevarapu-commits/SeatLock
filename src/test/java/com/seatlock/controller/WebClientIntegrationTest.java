@@ -36,6 +36,8 @@ class WebClientIntegrationTest extends IntegrationTest {
                 .andExpect(content().string(containsString("[hidden] { display: none !important; }")));
         mvc.perform(get("/account.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("/api/auth/login")));
+        mvc.perform(get("/payment.js")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("4242424242424242")));
         mvc.perform(get("/info.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("Your data & privacy")));
     }

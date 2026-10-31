@@ -16,6 +16,8 @@ import com.icegreen.greenmail.util.GreenMailUtil;
 import com.icegreen.greenmail.util.ServerSetupTest;
 import com.jayway.jsonpath.JsonPath;
 import com.seatlock.dto.EventResponse;
+import com.seatlock.model.Booking;
+import com.seatlock.repository.BookingRepository;
 import com.seatlock.support.IntegrationTest;
 import jakarta.mail.internet.MimeMessage;
 import java.time.Duration;
@@ -38,7 +40,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * Accounts end to end over HTTP: sign-up, sign-in, profile, password reset by email, My bookings,
- * and who may use a signed-in buyer's hold. Emails go to GreenMail, an in-memory SMTP server.
+ * who may use a signed-in buyer's hold, guest contact details and booking confirmation emails. Emails go to GreenMail, an in-memory SMTP server.
  */
 @AutoConfigureMockMvc
 class AccountIntegrationTest extends IntegrationTest {
@@ -54,6 +56,9 @@ class AccountIntegrationTest extends IntegrationTest {
 
     @Autowired
     private MockMvc mvc;
+
+    @Autowired
+    private BookingRepository bookingRepository;
 
     // ---- sign-up and sign-in ------------------------------------------------------------------
 
@@ -277,6 +282,91 @@ class AccountIntegrationTest extends IntegrationTest {
         return """
                 {"name": "%s", "email": "%s", "password": "%s"%s}
                 """.formatted(name, email, password, phone == null ? "" : ", \"phone\": \"" + phone + "\"");
+    }
+
+    // ---- booking confirmation emails and guest contact details --------------------------------
+
+    @Test
+    void guestGivesEmailAndPhoneWhenPayingAndGetsTheBookingEmail() throws Exception {
+        String email = uniqueEmail();
+        EventResponse event = createEvent();
+        int holdId = holdAs(null, event, seatIds(event.id()).get(0));
+
+        String reference = JsonPath.read(confirm(holdId, null, email, "+44 20 7946 0000")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.reference");
+
+        MimeMessage confirmation = awaitEmails(email, 1).get(0);
+        assertThat(confirmation.getSubject()).isEqualTo("Your SeatLock booking " + reference);
+        assertThat(GreenMailUtil.getBody(confirmation))
+                .contains("Hi there", reference, "Test Show", "Test Hall, Testville", "Main A1", "$50.00",
+                        "http://seatlock.test");
+        Booking booking = bookingRepository.findByReference(reference).orElseThrow();
+        assertThat(booking.getContactEmail()).isEqualTo(email);
+        assertThat(booking.getContactPhone()).isEqualTo("+44 20 7946 0000");
+    }
+
+    @Test
+    void signedInBookingEmailsTheAccountAddressNotTheContactGiven() throws Exception {
+        String email = uniqueEmail();
+        String other = uniqueEmail();
+        MockHttpSession session = register("Meera Iyer", email, "correct-horse-5", null);
+        awaitEmails(email, 1);   // welcome
+        EventResponse event = createEvent();
+        int holdId = holdAs(session, event, seatIds(event.id()).get(0));
+
+        String reference = JsonPath.read(confirm(holdId, session, other, "+44 20 7946 0000")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.reference");
+
+        MimeMessage confirmation = awaitEmails(email, 2).get(1);
+        assertThat(confirmation.getSubject()).isEqualTo("Your SeatLock booking " + reference);
+        assertThat(GreenMailUtil.getBody(confirmation)).contains("Hi Meera Iyer");
+        assertThat(emailsTo(other)).isEmpty();
+        assertThat(bookingRepository.findByReference(reference).orElseThrow().getContactEmail()).isNull();
+    }
+
+    @Test
+    void guestContactDetailsAreValidatedBeforeAnythingIsBooked() throws Exception {
+        EventResponse event = createEvent();
+        int holdId = holdAs(null, event, seatIds(event.id()).get(0));
+
+        confirm(holdId, null, "not-an-email", "+44 20 7946 0000").andExpect(status().isBadRequest());
+        confirm(holdId, null, uniqueEmail(), "call me").andExpect(status().isBadRequest());
+        // Nothing was booked: the hold is still active and a valid pair confirms it.
+        perform(get("/api/holds/{id}", holdId), null).andExpect(jsonPath("$.status").value("ACTIVE"));
+        confirm(holdId, null, uniqueEmail(), "+91 98765 43210").andExpect(status().isCreated());
+    }
+
+    @Test
+    void confirmWithoutContactDetailsStillBooksForApiClients() throws Exception {
+        EventResponse event = createEvent();
+        String reference = bookAs(null, event, seatIds(event.id()).get(0));
+
+        Booking booking = bookingRepository.findByReference(reference).orElseThrow();
+        assertThat(booking.getContactEmail()).isNull();
+        assertThat(booking.getContactPhone()).isNull();
+    }
+
+    @Test
+    void bookingLookupNeverShowsTheGuestsContactDetails() throws Exception {
+        String email = uniqueEmail();
+        EventResponse event = createEvent();
+        int holdId = holdAs(null, event, seatIds(event.id()).get(0));
+        String reference = JsonPath.read(confirm(holdId, null, email, "+44 20 7946 0000")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.reference");
+
+        String lookup = mvc.perform(get("/api/bookings/{reference}", reference))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contactEmail").doesNotExist())
+                .andExpect(jsonPath("$.contactPhone").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(lookup).doesNotContain(email);
+    }
+
+    /** Confirms the hold the way the payment page does, with the guest's contact details as the body. */
+    private ResultActions confirm(int holdId, MockHttpSession session, String email, String phone) throws Exception {
+        return perform(post("/api/holds/{id}/confirm", holdId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"contactEmail\": \"%s\", \"contactPhone\": \"%s\"}".formatted(email, phone)), session);
     }
 
     private MockHttpSession register(String name, String email, String password, String phone) throws Exception {

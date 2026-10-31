@@ -32,14 +32,28 @@ public class Booking {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** A guest's contact details, given when paying; null for signed-in buyers and API clients. */
+    @Column(name = "contact_email", length = 254)
+    private String contactEmail;
+
+    @Column(name = "contact_phone", length = 20)
+    private String contactPhone;
+
     protected Booking() {
     }
 
     public Booking(String reference, Hold hold, long totalCents, Instant createdAt) {
+        this(reference, hold, totalCents, createdAt, null, null);
+    }
+
+    public Booking(String reference, Hold hold, long totalCents, Instant createdAt, String contactEmail,
+                   String contactPhone) {
         this.reference = reference;
         this.hold = hold;
         this.totalCents = totalCents;
         this.createdAt = createdAt;
+        this.contactEmail = blankToNull(contactEmail);
+        this.contactPhone = blankToNull(contactPhone);
     }
 
     public Long getId() {
@@ -60,5 +74,17 @@ public class Booking {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getContactEmail() {
+        return contactEmail;
+    }
+
+    public String getContactPhone() {
+        return contactPhone;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
