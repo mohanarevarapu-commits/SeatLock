@@ -21,6 +21,20 @@ the steps.
 
 ---
 
+## Unreleased
+
+Documentation only; the app is unchanged from 0.9.0.
+
+- **Architecture guide** brought up to date for 0.7.0–0.9.0: the layer diagram shows `tickets.js`,
+  the ticket and account mailers, `EmailSender` and the demo outbox, and the rate limit on the
+  sign-in and Find my tickets paths; a table of the web client's files and the pages they draw;
+  a new **Checkout and tickets** section with step-by-step diagrams of a guest booking (hold,
+  Your details and demo payment, confirm with the contact, ticket email with the QR code) and of
+  Find my tickets (code by email, lookup, limits); the venue `address` in the data model; the
+  full configuration table and the profiles as they are now.
+- **API guide:** the typical flow now ends with the ticket email, the QR code and Find my tickets.
+- **README:** ZXing and the ticket emails in the tech stack; Your details in the Book now steps.
+
 ## 0.9.0 — 2026-10-31
 
 Tickets: a QR code and the venue's details in every booking email, and Find my tickets for guests.
@@ -37,7 +51,8 @@ Tickets: a QR code and the venue's details in every booking email, and Find my t
   (`QrCodeGenerator`). Shown on the booking confirmation, on Find my tickets, and as a **Ticket QR
   code** link in My bookings.
 - **Find my tickets** (`#tickets`, in the header and footer): a guest enters the email and phone
-  number they paid with, clicks **Send code**, gets a **6-digit code by email** and sees their tickets.
+  number they paid with, clicks **Send code**, gets a **6-digit code by email** and sees their
+  tickets.
   - `POST /api/tickets/code` (always `202`) and `POST /api/tickets/lookup`.
   - A code works once, for 10 minutes; 5 wrong tries end it; a new code replaces the old one and is
     sent at most every 30 seconds. Only a BCrypt hash of the code is stored (`TicketAccessCode`).
@@ -122,8 +137,8 @@ Book as a guest or log in, and booking details by email.
 - **Personal data rule:** guests now give an email and phone number when they pay, kept with
   their booking (README, CLAUDE.md and the Privacy page updated).
 - Version 0.8.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links. The account
-  notifications (watchlist, "booking opens" alerts, reminders, "selling fast" emails) move to a later
-  version (0.9.0 became tickets and Find my tickets).
+  notifications (watchlist, "booking opens" alerts, reminders, "selling fast" emails) move to a
+  later version (0.9.0 became tickets and Find my tickets).
 
 ### Fixed
 

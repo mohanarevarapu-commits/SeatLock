@@ -19,7 +19,9 @@ as SHA-256 hashes, and SeatLock never asks for or stores card details.
 - H2 (in-memory, MySQL mode) for development and tests; MySQL 8 for a real database
 - ActiveMQ Artemis (Spring JMS) for the queued checkout, embedded by default
 - Spring Security for accounts (session sign-in, BCrypt passwords, CSRF protection)
-- Spring Mail (SMTP) for account emails: welcome, password reset, password changed
+- Spring Mail (SMTP) for emails: tickets (HTML with the QR code), Find my tickets codes, welcome,
+  password reset, password changed
+- ZXing (core) to draw the QR codes on tickets
 - springdoc-openapi for the OpenAPI spec and Swagger UI
 - Plain HTML, CSS and JavaScript for the web client (no build step, served by Spring Boot)
 - JUnit 5, AssertJ, Mockito, MockMvc, GreenMail (in-memory SMTP server for tests)
@@ -94,9 +96,10 @@ The page at `/` lets you buy tickets in a browser:
   middle, on a side or in a corner) and every section faces it, with row A nearest the stage.
   Large venues are zoomed to fit; use **−**, **+** and **Fit** to zoom.
 - **Book now** asks whether to **Log in**, **Sign up** or **Continue as guest** (see
-  [Accounts](#accounts)), then opens the payment page and keeps the seats for 10 minutes (behind the scenes this
-  is a hold, so nobody else can take them while you pay). The page shows a countdown, the order
-  summary and a **demo payment form** with **Card** and **UPI** tabs. No money is taken, and only
+  [Accounts](#accounts)), then opens the payment page and keeps the seats for 10 minutes (behind
+  the scenes this is a hold, so nobody else can take them while you pay). The page shows a
+  countdown, the order summary, **Your details** for guests (email and phone) and a **demo payment
+  form** with **Card** and **UPI** tabs. No money is taken, and only
   test details work; anything else, including a real card, is refused. Card and UPI details are
   checked in the browser and never sent to the server.
 
@@ -348,8 +351,8 @@ Performance notes:
 ## Project layout
 
 ```
-src/main/resources/static/  Web client: index.html, app.js, payment.js, tickets.js, account.js, info.js, app.css;
-                            outbox.html and outbox.js (the demo outbox)
+src/main/resources/static/  Web client: index.html, app.css, app.js, payment.js, tickets.js,
+                            account.js, info.js; outbox.html and outbox.js (the demo outbox)
 src/main/java/com/seatlock
 ├── config/        Clock, OpenAPI, hold/queue/rate-limit settings, demo data seeder
 ├── controller/    REST endpoints
@@ -363,7 +366,7 @@ src/main/java/com/seatlock
 ├── ratelimit/     Per-IP token bucket filter for checkout and sign-in endpoints
 ├── security/      Spring Security setup, session sign-in, CSRF rules
 ├── repository/    Spring Data repositories, including the locking queries
-└── service/       Business logic: holds, bookings, expiry, queued checkout, tickets and QR codes
+└── service/       Business logic: holds, bookings, expiry, queue, tickets, QR codes
 src/test/java/com/seatlock
 ├── controller/    MockMvc tests and an end-to-end HTTP flow
 ├── model/         Unit tests for entity rules

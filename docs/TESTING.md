@@ -440,7 +440,8 @@ check real emails, set the `SPRING_MAIL_*` variables first (see the README).
 ## Manual scenarios: tickets
 
 Start the app with demo data and no mail server, so emails land in the demo outbox at
-http://localhost:8080/outbox.html. Test details are in [Test accounts and test data](#test-accounts-and-test-data).
+http://localhost:8080/outbox.html. Test details are in
+[Test accounts and test data](#test-accounts-and-test-data).
 
 | # | Scenario | Steps | Expected |
 |---|---|---|---|

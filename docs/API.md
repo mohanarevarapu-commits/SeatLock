@@ -36,10 +36,15 @@ Conventions:
 2. `GET /api/events/{id}/seat-map` to see which seats are free and get their `eventSeatId`s.
 3. `POST /api/events/{id}/holds` to hold up to 8 seats for 10 minutes.
 4. Take payment (outside SeatLock).
-5. `POST /api/holds/{id}/confirm` to turn the hold into a booking, or
-   `DELETE /api/holds/{id}` to give the seats back.
+5. `POST /api/holds/{id}/confirm` to turn the hold into a booking (for a guest, send their
+   `contactEmail` and `contactPhone` in the body), or `DELETE /api/holds/{id}` to give the seats
+   back.
+6. The buyer is emailed their ticket with its QR code; `GET /api/bookings/{reference}/qr` returns
+   the same QR code as a PNG.
+7. Later, a guest sees their tickets again through [Find my tickets](#find-my-tickets): a code
+   by email, then the lookup.
 
-If you do neither, the hold expires and its seats become available again.
+If you neither confirm nor release, the hold expires and its seats become available again.
 
 ---
 
@@ -579,9 +584,9 @@ curl -s -X POST localhost:8080/api/events/1/purchase-requests -H 'Content-Type: 
 
 The checkout endpoints, `POST /api/events/{id}/holds`, `POST /api/events/{id}/purchase-requests`
 and `POST /api/holds/{id}/confirm`, the sign-in endpoints `POST /api/auth/*` and Find my tickets
-(`POST /api/tickets/*`) together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
-token bucket that refills continuously, so one request is allowed again every 200 ms. Other
-endpoints, including the seat map, are not limited.
+(`POST /api/tickets/*`) together allow **5 requests per second per client IP**, with bursts of up
+to 5. Each IP has a token bucket that refills continuously, so one request is allowed again every
+200 ms. Other endpoints, including the seat map, are not limited.
 
 Over the limit, the request is rejected before it touches the database:
 

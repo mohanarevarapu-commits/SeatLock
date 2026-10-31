@@ -11,8 +11,8 @@ flowchart LR
     browser --> limiter
     client([HTTP client]) --> limiter
     subgraph app [Spring Boot app]
-        web[static web client<br/>index.html, app.js, payment.js, account.js, info.js]
-        limiter[RateLimitingFilter<br/>5 checkout and sign-in req/s per IP] --> security
+        web[static web client<br/>index.html, app.js, payment.js,<br/>tickets.js, account.js, info.js]
+        limiter[RateLimitingFilter<br/>5 req/s per IP on checkout,<br/>sign-in and ticket paths] --> security
         security[Spring Security<br/>session sign-in, CSRF,<br/>/api/account needs sign-in] --> controller
         controller[controller<br/>validate input, set status] --> service[service<br/>transactions, locking, DTOs]
         service --> repository[repository<br/>queries and row locks]
@@ -28,22 +28,36 @@ flowchart LR
         queue -- after 4 attempts --> dlq
         dlq --> consumer
         consumer --> service
-        service -- after commit --> mailer[AccountMailer<br/>background thread]
+        service -- after commit --> mailer[AccountMailer, BookingMailer<br/>background thread]
+        mailer --> sender[EmailSender<br/>text, or HTML with the QR image]
+        sender -- no mail server,<br/>demo profile --> outbox[DemoOutbox<br/>/outbox.html, this computer only]
     end
     limiter -. over limit .-> r429([429 Too Many Requests])
-    mailer --> smtp[(SMTP server)]
+    sender --> smtp[(SMTP server)]
     repository --> db[(H2 or MySQL)]
 ```
 
 The web client in `src/main/resources/static` is plain HTML, CSS and JavaScript served by
 Spring Boot at `/`. It has no server-side logic: it calls the same public REST API as any other
 client, so every seat it shows and every hold it places goes through the same checks. Its home
-page (Today's concerts, Tomorrow's concerts and Selling fast blocks, each opening a list) is built in the browser from `GET /api/events`, whose seat
-totals come from one grouped count over `event_seats` (`EventSeatRepository.countSeatsByEvent`);
-it reads without locks, so the numbers can be a moment old, which is fine for a show list.
+page (Today's concerts, Tomorrow's concerts and Selling fast blocks, each opening a list) is built
+in the browser from `GET /api/events`, whose seat totals come from one grouped count over
+`event_seats` (`EventSeatRepository.countSeatsByEvent`); it reads without locks, so the numbers
+can be a moment old, which is fine for a show list. Pages are switched by the address's `#hash`,
+so each one can be linked and the browser's Back button works.
 
-A request passes the rate limiter (checkout and sign-in paths only), then Spring Security, then a
-thin controller, then a service that owns the transaction.
+| File | What it does |
+|---|---|
+| `index.html` | The page shell: header, home, seat map, payment, account, help and tickets views, footer |
+| `app.js` | Home page blocks and lists (`#today`, `#tomorrow`, `#selling-fast`, `#all`), the seat map (`#event-N`), Book now, the payment page (`#checkout`) and the confirmation with the ticket QR code |
+| `payment.js` | The payment page form: **Your details** for guests (email, phone), then the demo card / UPI payment and **Pay now**. Card and UPI details are checked in the browser and never sent |
+| `tickets.js` | Find my tickets (`#tickets`) and the ticket card with its QR code |
+| `account.js` | The "How would you like to book?" dialog, log-in and sign-up pages, profile menu, My bookings, routing by `#hash`, and start-up |
+| `info.js` | Help and policy pages (`#help`, `#terms`, `#privacy`, `#security`, `#payments`) |
+| `outbox.html`, `outbox.js` | The demo outbox page, a separate page for the demo profile |
+
+A request passes the rate limiter (checkout, sign-in and Find my tickets paths only), then Spring
+Security, then a thin controller, then a service that owns the transaction.
 
 **Accounts** are optional. Spring Security identifies a signed-in buyer by the session cookie and
 leaves everything open to guests except `/api/account/**`. A request is CSRF-checked only when it
@@ -86,7 +100,7 @@ There are two ways to place a hold:
 | DTO | `dto` | Request and response records. Entities never leave a service (`open-in-view` is off). |
 | Errors | `exception` | Domain exceptions, mapped to RFC 9457 responses in `GlobalExceptionHandler`. |
 | Queue | `queue` | Artemis queue names, retry and dead-letter policy, JSON messages, and `PurchaseRequestConsumer`. |
-| Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout and sign-in paths; returns `429` before any controller runs. |
+| Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout, sign-in and Find my tickets paths; returns `429` before any controller runs. |
 | Security | `security` | `SecurityConfig` (which paths need sign-in, CSRF rule, BCrypt), `SessionAuthenticator` (sign in and out of the HTTP session), `AccountPrincipal`. |
 | Notification | `notification` | Email events; `AccountMailer` and `BookingMailer` (after commit, in the background); `EmailSender` (SMTP, HTML with inline images; with no server, the `DemoOutbox` in the demo profile, otherwise skipped with a warning). |
 
@@ -96,6 +110,7 @@ There are two ways to place a hold:
 erDiagram
     VENUE {
         long id PK
+        string address "optional, printed on tickets"
         string type "ARENA, STADIUM, OPERA_HOUSE, ..."
         string stage_zone "NORTH, CENTER, WEST, ..."
         string stage_label
@@ -183,8 +198,8 @@ erDiagram
 - **Booking** is the confirmed result of exactly one hold (`hold_id` is unique).
 - **Account** is an optional registered buyer. With a guest booking's contact email and phone
   (given on the payment page, sent with the confirm request), it is the only personal data
-  SeatLock stores. A hold records the account that placed it; bookings reach their account through their hold, which is
-  how **My bookings** finds them.
+  SeatLock stores. A hold records the account that placed it; bookings reach their account
+  through their hold, which is how **My bookings** finds them.
 - **PasswordResetToken** is one forgot-password link. Only a hash of the token is stored, so a
   copy of the database cannot be used to reset passwords. A token works once, until it expires,
   and is cancelled when a newer link is requested.
@@ -330,6 +345,74 @@ sequenceDiagram
   `InvalidRequestException` are recorded as `REJECTED` in a new transaction. Everything else is
   rethrown so the transacted JMS session rolls back and the broker redelivers.
 
+## Checkout and tickets
+
+How the web client books seats and how the buyer gets their ticket. The locking is the same as
+any other client's: the browser only calls the public API.
+
+```mermaid
+sequenceDiagram
+    participant G as Guest's browser
+    participant API as SeatLock API
+    participant B as BookingService
+    participant M as BookingMailer
+    participant I as Inbox (SMTP, or the demo outbox)
+
+    G->>G: Book now → "How would you like to book?" → Continue as guest
+    G->>API: POST /events/{id}/holds
+    API-->>G: 201 hold: seats kept for 10 minutes, payment page opens
+    Note over G: Your details (email, phone) and the demo card / UPI form.<br/>Pay now checks the details, then the payment, in the browser.<br/>Card and UPI details are never sent
+    G->>API: POST /holds/{id}/confirm {contactEmail, contactPhone}
+    API->>B: confirmHold(hold, no account, contact)
+    B->>B: lock the hold, lock its seats, book them,<br/>save the booking with the contact,<br/>publish BookingConfirmedEvent
+    API-->>G: 201 booking (reference)
+    G->>API: GET /bookings/{reference}/qr (shown on the confirmation)
+    B--)M: after commit, on a background thread
+    M->>M: ticket: HTML and text, QR code PNG as cid:ticket-qr
+    M--)I: "Your SeatLock booking SL-…"
+```
+
+- **Logging in instead:** the dialog's **Log in** or **Sign up** sends the buyer to the sign-in
+  page and back to the same seats, then straight to payment. Their hold belongs to the account,
+  the payment page shows the account's name and email instead of asking, and the ticket email goes
+  to the account's email. Signed-in buyers skip the dialog.
+- **Where the details live:** a guest's email and phone travel only with the confirm request and
+  are stored on the booking, so a guest who leaves without paying leaves nothing behind. The API
+  never returns them; the booking lookup by reference shows seats and totals only.
+- **The QR code** holds the booking reference. `QrCodeGenerator` draws it with ZXing for both the
+  email (inline image) and `GET /api/bookings/{reference}/qr` (used by the confirmation, My
+  bookings and Find my tickets).
+
+Find my tickets lets a guest see their tickets again later:
+
+```mermaid
+sequenceDiagram
+    participant G as Guest's browser
+    participant T as TicketAccessService
+    participant DB as bookings, ticket_access_codes
+    participant I as Inbox
+
+    G->>T: POST /tickets/code {email, phone}
+    T->>T: draw a 6-digit code and BCrypt it (always, so timing reveals nothing)
+    T->>DB: guest bookings with this email and phone?
+    alt bookings match, and no code was sent in the last 30 s
+        T->>DB: spend older codes, save the new hash (valid 10 minutes)
+        T--)I: after commit: "Your SeatLock ticket code" (code only in the body)
+    else no match, or asked again too soon
+        Note over T,DB: nothing saved, nothing sent
+    end
+    T-->>G: 202 either way
+    G->>T: POST /tickets/lookup {email, phone, code}
+    T->>DB: lock the newest unspent code (FOR UPDATE)
+    alt usable and the code matches
+        T->>DB: mark it used
+        T-->>G: 200 the guest's tickets, soonest concert first
+    else wrong, used, expired, or 5 wrong tries
+        T->>DB: a wrong guess at a still-valid code counts as a try<br/>(saved although the answer is an error)
+        T-->>G: 400 Invalid code, the same answer for every case
+    end
+```
+
 ## Configuration
 
 | Property | Default | Meaning |
@@ -339,16 +422,31 @@ sequenceDiagram
 | `seatlock.holds.sweep-interval` | `PT30S` | Delay between expiry sweeps |
 | `seatlock.holds.sweep-batch-size` | `200` | Holds expired per sweep |
 | `seatlock.holds.sweeper-enabled` | `true` | Turn the background sweeper off (tests do this) |
-| `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout (off in tests and load tests) |
-| `seatlock.rate-limit.requests-per-second` | `5` | Checkout requests allowed per second per IP, also the burst size |
-| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm` | Paths the limit applies to |
+| `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit (off in tests and load tests) |
+| `seatlock.rate-limit.requests-per-second` | `5` | Requests allowed per second per IP on the limited paths, also the burst size |
+| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm`, `/api/auth/*`, `/api/tickets/*` | Paths the limit applies to |
+| `seatlock.accounts.reset-token-ttl` | `PT30M` | How long a forgot-password link works |
+| `seatlock.accounts.base-url` | `http://localhost:8080` (env `SEATLOCK_BASE_URL`) | Address used for links in emails |
+| `seatlock.accounts.mail-from` | `SeatLock <no-reply@seatlock.local>` (env `SEATLOCK_MAIL_FROM`) | Sender of SeatLock emails |
+| `seatlock.accounts.time-zone` | the server's zone (env `SEATLOCK_TIME_ZONE`) | Time zone for concert times in emails |
+| `seatlock.mail.demo-outbox` | `false` (`true` in the `demo` profile) | Keep emails in the demo outbox when no mail server is set; local requests only |
+| `spring.mail.host`, `port`, `username`, `password` | none (env `SPRING_MAIL_*`) | SMTP server for emails |
+| `server.servlet.session.timeout` | `2h` | How long a signed-in session lasts without activity |
 | `seatlock.queue.consumers` | `1-4` | Queue consumer threads (one event's requests are still processed one at a time) |
 | `seatlock.queue.max-delivery-attempts` | `4` | Tries per queued request before it goes to the dead-letter queue |
 | `seatlock.queue.redelivery-delay` | `PT0.5S` | Wait before the first retry |
 | `seatlock.queue.redelivery-multiplier` | `2.0` | Growth of the wait on each further retry (0.5 s, 1 s, 2 s) |
 
 Profiles: default uses in-memory H2 in MySQL mode; `mysql` points at MySQL 8 (see
-`docker-compose.yml`); `demo` seeds a 5,000-seat venue and two events.
+`docker-compose.yml`); `demo` seeds 12 fictional venues (with street addresses) and 20 concerts,
+some guest sales and a demo account, and turns on the demo outbox; `test` is the test suite's
+(no sweeper, no rate limit, mail to `localhost:3025` where the tests' GreenMail listens, 50 ms
+queue retries, links built on `http://seatlock.test`).
+
+Constants that are rules rather than settings: Find my tickets codes last 10 minutes
+(`TicketAccessService.CODE_TTL`), a new one is sent at most every 30 seconds (`RESEND_AFTER`) and
+five wrong tries end one (`TicketAccessCode.MAX_ATTEMPTS`); ticket QR codes are 320×320 pixels
+(`QrCodeGenerator.SIZE`).
 
 ## Testing strategy
 
