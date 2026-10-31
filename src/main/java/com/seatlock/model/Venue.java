@@ -30,6 +30,10 @@ public class Venue {
     @Column(nullable = false, length = 120)
     private String city;
 
+    /** Street address shown on tickets, e.g. "12 Crescent Square"; optional. */
+    @Column(length = 200)
+    private String address;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private VenueType type;
@@ -53,8 +57,13 @@ public class Venue {
     }
 
     public Venue(String name, String city, VenueType type, MapZone stageZone, String stageLabel) {
+        this(name, city, null, type, stageZone, stageLabel);
+    }
+
+    public Venue(String name, String city, String address, VenueType type, MapZone stageZone, String stageLabel) {
         this.name = name;
         this.city = city;
+        this.address = address == null || address.isBlank() ? null : address.strip();
         this.type = type;
         this.stageZone = stageZone;
         this.stageLabel = stageLabel;
@@ -107,6 +116,10 @@ public class Venue {
 
     public String getStageLabel() {
         return stageLabel;
+    }
+
+    public String getAddress() {
+        return address;
     }
 
     public List<Section> getSections() {

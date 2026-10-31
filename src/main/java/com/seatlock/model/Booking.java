@@ -52,7 +52,8 @@ public class Booking {
         this.hold = hold;
         this.totalCents = totalCents;
         this.createdAt = createdAt;
-        this.contactEmail = blankToNull(contactEmail);
+        String email = blankToNull(contactEmail);
+        this.contactEmail = email == null ? null : Account.normalizeEmail(email);
         this.contactPhone = blankToNull(contactPhone);
     }
 
@@ -82,6 +83,19 @@ public class Booking {
 
     public String getContactPhone() {
         return contactPhone;
+    }
+
+    /**
+     * A phone number reduced to what identifies it: digits, plus a leading {@code +} if it had one.
+     * "+44 (20) 7946-0000" and "+442079460000" are the same number.
+     */
+    public static String normalizePhone(String phone) {
+        if (phone == null) {
+            return null;
+        }
+        String trimmed = phone.strip();
+        String digits = trimmed.replaceAll("[^0-9]", "");
+        return trimmed.startsWith("+") ? "+" + digits : digits;
     }
 
     private static String blankToNull(String value) {

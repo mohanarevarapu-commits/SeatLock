@@ -614,6 +614,7 @@ function showPage(page) {
     $("auth-view").hidden = page !== "auth";
     $("account-view").hidden = page !== "account";
     $("info-view").hidden = page !== "info";
+    $("tickets-view").hidden = page !== "tickets";
     if (page === "browse") fitSeatMap();
     window.scrollTo(0, 0);
 }
@@ -643,19 +644,25 @@ function renderCheckout() {
         checkoutForm(hold)));           // Your details and the demo card / UPI payment, in payment.js
 }
 
-function renderConfirmation(booking, paidWith, contact) {
+async function renderConfirmation(booking, paidWith, contact) {
     const event = state.events.find(e => e.id === booking.eventId);
     $("checkout-view").replaceChildren(el("div", { class: "checkout" },
         el("div", { class: "card confirmation" },
             el("h2", {}, "Booking confirmed 🎉"),
-            el("p", { class: "muted" }, `${event.name} · ${event.venueName} · ${dateTime(event.startsAt)}`),
+            el("p", { class: "muted" }, `${event.name} · ${event.venueName}${event.venueAddress
+                ? `, ${event.venueAddress}` : ""}, ${event.venueCity} · ${dateTime(event.startsAt)}`),
+            el("img", { class: "confirmation-qr", src: `/api/bookings/${encodeURIComponent(booking.reference)}/qr`,
+                width: 180, height: 180, alt: `QR code for booking ${booking.reference}` }),
+            el("p", { class: "muted small" }, "Show this QR code, or the booking reference, at the entrance."),
             ...bookingView(booking),
             paidWith ? el("p", { class: "muted small" }, `Paid with ${paidWith} · demo payment, no money was taken`) : null,
             state.me ? el("p", { class: "muted small" },
                 `This booking is saved under My bookings, and the details are emailed to ${state.me.email}.`)
                 : contact ? el("p", { class: "muted small" },
-                    `Booking details are emailed to ${contact.contactEmail}. Keep the reference to look the booking up later.`)
+                    `Your ticket, with this QR code, is emailed to ${contact.contactEmail}. You can also see it any time on `,
+                    el("a", { href: "#tickets" }, "Find my tickets"), " with your email and phone number.")
                     : null,
+            await outboxHint("no mail server is set up, so the ticket email is kept in the demo outbox."),
             state.me ? el("a", { class: "btn secondary", href: "#bookings" }, "View my bookings") : null,
             el("a", { class: "btn", href: "#" }, "Back to shows"))));
 }
@@ -750,7 +757,8 @@ window.addEventListener("popstate", () => {
     if (location.hash.startsWith("#event-")) {
         if (state.hold) cancelCheckout();
         else if (!$("checkout-view").hidden) backToSeatMap();
-    } else if ((location.hash === "" || homeListOf(location.hash) || isInfoRoute(location.hash)) && state.hold) {
+    } else if ((location.hash === "" || location.hash === "#tickets" || homeListOf(location.hash)
+        || isInfoRoute(location.hash)) && state.hold) {
         releaseHoldBeforeLeaving();   // off to the home page, a list or a help page; route() shows it
     }
 });

@@ -38,6 +38,10 @@ class WebClientIntegrationTest extends IntegrationTest {
                 .andExpect(content().string(containsString("/api/auth/login")));
         mvc.perform(get("/payment.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("4242424242424242")));
+        mvc.perform(get("/tickets.js")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("/api/tickets/lookup")));
+        mvc.perform(get("/outbox.html")).andExpect(status().isOk())
+                .andExpect(content().string(containsString("Demo outbox")));
         mvc.perform(get("/info.js")).andExpect(status().isOk())
                 .andExpect(content().string(containsString("Your data & privacy")));
     }

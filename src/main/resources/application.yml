@@ -58,12 +58,16 @@ seatlock:
       - /api/holds/*/confirm
       # Sign-in, sign-up and password resets: slows down password guessing and email flooding.
       - /api/auth/*
+      # Find my tickets: slows down guessing ticket codes and requesting codes for many emails.
+      - /api/tickets/*
   accounts:
     reset-token-ttl: PT30M
     # Address of the web client, used for links in emails.
     base-url: ${SEATLOCK_BASE_URL:http://localhost:8080}
     # Sender of SeatLock emails. With Gmail this must be the Gmail address you sign in with.
     mail-from: ${SEATLOCK_MAIL_FROM:SeatLock <no-reply@seatlock.local>}
+    # Time zone for concert times in emails, e.g. Asia/Kolkata; empty means the server's own.
+    time-zone: ${SEATLOCK_TIME_ZONE:}
   # Queued checkout: retries with growing delays, then the dead-letter queue.
   queue:
     consumers: 1-4
@@ -80,3 +84,15 @@ spring:
     url: ${SEATLOCK_DB_URL:jdbc:mysql://localhost:3306/seatlock}
     username: ${SEATLOCK_DB_USER:seatlock}
     password: ${SEATLOCK_DB_PASSWORD:seatlock}
+
+---
+# Demo data, and with no mail server set up, emails are kept in the demo outbox (/outbox.html)
+# instead of being dropped, so booking emails and ticket codes can be seen. The outbox only
+# answers requests from this machine; never turn it on for a public server.
+spring:
+  config:
+    activate:
+      on-profile: demo
+seatlock:
+  mail:
+    demo-outbox: true

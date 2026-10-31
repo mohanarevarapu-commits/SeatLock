@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
+ * @param address      street address shown on tickets, e.g. "12 Crescent Square"; optional
  * @param type         kind of venue; defaults to {@code ARENA}
  * @param stageZone    where the stage sits on the 3x3 map grid; defaults to {@code NORTH} (an end stage)
  * @param stageLabel   text drawn on the stage, e.g. "STAGE" or "PITCH"; defaults to "STAGE"
@@ -22,10 +23,16 @@ public record CreateVenueRequest(
         VenueType type,
         MapZone stageZone,
         @Size(max = 30) String stageLabel,
-        @NotEmpty @Size(max = 50) List<@Valid SectionRequest> sections) {
+        @NotEmpty @Size(max = 50) List<@Valid SectionRequest> sections,
+        @Size(max = 200) String address) {
 
     public CreateVenueRequest(String name, String city, List<SectionRequest> sections) {
-        this(name, city, null, null, null, sections);
+        this(name, city, null, null, null, sections, null);
+    }
+
+    public CreateVenueRequest(String name, String city, VenueType type, MapZone stageZone, String stageLabel,
+                              List<SectionRequest> sections) {
+        this(name, city, type, stageZone, stageLabel, sections, null);
     }
 
     /** @param zone where the section sits on the map; defaults to across from the stage */

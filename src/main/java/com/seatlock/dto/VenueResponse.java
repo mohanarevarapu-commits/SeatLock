@@ -6,8 +6,8 @@ import com.seatlock.model.Venue;
 import com.seatlock.model.VenueType;
 import java.util.List;
 
-public record VenueResponse(Long id, String name, String city, VenueType type, MapZone stageZone, String stageLabel,
-                            int capacity, List<SectionSummary> sections) {
+public record VenueResponse(Long id, String name, String city, String address, VenueType type, MapZone stageZone,
+                            String stageLabel, int capacity, List<SectionSummary> sections) {
 
     public record SectionSummary(Long id, String name, MapZone zone, int seatCount, long priceCents) {
 
@@ -18,7 +18,7 @@ public record VenueResponse(Long id, String name, String city, VenueType type, M
     }
 
     public static VenueResponse from(Venue venue) {
-        return new VenueResponse(venue.getId(), venue.getName(), venue.getCity(), venue.getType(),
+        return new VenueResponse(venue.getId(), venue.getName(), venue.getCity(), venue.getAddress(), venue.getType(),
                 venue.getStageZone(), venue.getStageLabel(), venue.capacity(),
                 venue.getSections().stream().map(SectionSummary::from).toList());
     }

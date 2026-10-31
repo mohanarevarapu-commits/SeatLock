@@ -52,11 +52,24 @@ echoes the `XSRF-TOKEN` cookie in an `X-XSRF-TOKEN` header. Controllers pass the
 account id (or null for a guest) to the services, which tie new holds to it and refuse anyone else
 on that hold with `404`.
 
-**Emails** (welcome, reset link, password changed, and the booking confirmation sent by
-`BookingMailer` to the account or guest email) are published as events inside the service's
-transaction and sent only after it commits, on a background thread. Nothing is
+**Emails** (welcome, reset link, password changed; the ticket email and the Find my tickets code
+sent by `BookingMailer`) are published as events inside the service's transaction and sent only
+after it commits, on a background thread. The ticket email is HTML with a plain-text alternative;
+its QR code (drawn by `QrCodeGenerator` with ZXing, holding the booking reference) is an inline
+image the HTML shows as `cid:ticket-qr`. With no mail server, `EmailSender` hands emails to the
+`DemoOutbox` when it is on (the `demo` profile), where `/outbox.html` shows them to the local
+machine only, and otherwise skips them with a warning that names only the subject. Nothing is
 sent for a change that rolled back, a slow mail server never delays a response, and response
-times do not reveal whether an email has an account. There are two ways to place a hold:
+times do not reveal whether an email has an account.
+
+**Find my tickets** (`TicketAccessService`) lets a guest see their tickets again: the email and
+phone number they paid with get a 6-digit code by email (`TicketAccessCode`, BCrypt-hashed, one
+use, 10 minutes, 5 wrong tries, a new code at most every 30 seconds), and the code returns their
+guest bookings as tickets. Asking for a code answers `202` and does the same hashing work whether
+or not bookings match, so neither the answer nor its timing reveals who has booked. Checking a
+code locks its row, so two checks at once cannot both use it or both escape the wrong-try count.
+
+There are two ways to place a hold:
 
 - **Direct** (`POST /api/events/{id}/holds`): the service locks the seats and answers `201` or
   `409` in the same request.
@@ -75,7 +88,7 @@ times do not reveal whether an email has an account. There are two ways to place
 | Queue | `queue` | Artemis queue names, retry and dead-letter policy, JSON messages, and `PurchaseRequestConsumer`. |
 | Rate limit | `ratelimit` | `RateLimitingFilter`: a token bucket per client IP on the checkout and sign-in paths; returns `429` before any controller runs. |
 | Security | `security` | `SecurityConfig` (which paths need sign-in, CSRF rule, BCrypt), `SessionAuthenticator` (sign in and out of the HTTP session), `AccountPrincipal`. |
-| Notification | `notification` | Account email events, `AccountMailer` (after commit, in the background) and `EmailSender` (SMTP; skips with a warning when no server is set). |
+| Notification | `notification` | Email events; `AccountMailer` and `BookingMailer` (after commit, in the background); `EmailSender` (SMTP, HTML with inline images; with no server, the `DemoOutbox` in the demo profile, otherwise skipped with a warning). |
 
 ## Data model
 
@@ -104,6 +117,7 @@ erDiagram
     PURCHASE_REQUEST |o--o| HOLD : "resulted in"
     ACCOUNT |o--o{ HOLD : "places (null for guests)"
     ACCOUNT ||--o{ PASSWORD_RESET_TOKEN : "forgot-password links"
+    BOOKING }o..o{ TICKET_ACCESS_CODE : "same contact email and phone"
 
     EVENT_SEAT {
         long id PK
@@ -139,6 +153,15 @@ erDiagram
         instant expires_at "30 minutes"
         instant used_at "set when used or replaced"
     }
+    TICKET_ACCESS_CODE {
+        long id PK
+        string email "lower-case"
+        string phone "digits, leading +"
+        string code_hash "BCrypt of the 6-digit code"
+        instant expires_at "10 minutes"
+        int attempts "wrong tries, at most 5"
+        instant used_at "set when used or replaced"
+    }
     PURCHASE_REQUEST {
         string id PK "request id from the 202 response"
         long event_id
@@ -149,6 +172,7 @@ erDiagram
 ```
 
 - **Venue → Section → Seat** is the physical layout. It is shared by every event at the venue.
+  A venue has an optional street `address`, printed on tickets.
   The venue's `stage_zone` and each section's `zone` place them on a 3×3 grid (north at the top),
   which is enough to describe an end stage, a stage in the round, a thrust, side or corner stage,
   a stadium with pitch seating, and opera boxes along the walls. Layout is display data only: it
@@ -164,6 +188,9 @@ erDiagram
 - **PasswordResetToken** is one forgot-password link. Only a hash of the token is stored, so a
   copy of the database cannot be used to reset passwords. A token works once, until it expires,
   and is cancelled when a newer link is requested.
+- **TicketAccessCode** is one Find my tickets code, for an email and phone number (normalised so
+  case, spaces, brackets and dashes do not matter). Only a BCrypt hash is stored: the code has
+  only a million values, so a fast hash would not protect it.
 - **PurchaseRequest** is the outcome of one queued request. It is written only after the consumer
   processes the request (never at submit time), and its id doubles as the idempotency key.
 
@@ -332,6 +359,8 @@ Every scenario, with the test that checks it, is listed in [TESTING.md](TESTING.
 | Entity rules | `src/test/.../model` | Plain unit tests, no Spring |
 | HTTP mapping | `controller/HoldControllerTest` | `@WebMvcTest` with mocked services and SeatLock's real security rules |
 | Accounts and email | `controller/AccountIntegrationTest` | Full app over MockMvc with sessions and CSRF as a browser sends them; emails land in GreenMail, an in-memory SMTP server |
+| Tickets and Find my tickets | `controller/TicketLookupIntegrationTest`, `service/QrCodeGeneratorTest` | The ticket email's HTML, text and inline QR image read back from GreenMail, and the QR decoded with ZXing; the code flow and its limits over HTTP with the controllable clock |
+| Demo outbox | `notification/DemoOutboxTest`, `controller/DemoOutboxControllerTest` | Plain unit tests: newest first, last 50, images as data URIs, local requests only |
 | End-to-end flow | `controller/ReservationFlowIntegrationTest` | Full app over MockMvc |
 | Services and races | `src/test/.../service` | Full context on H2, extending `support/IntegrationTest` |
 | Queued checkout | `service/QueuedCheckoutIntegrationTest` | Real embedded broker; a Mockito spy on `HoldService` injects failures to prove retries and the dead-letter path |

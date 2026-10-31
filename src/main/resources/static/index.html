@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SeatLock Tickets</title>
-    <link rel="stylesheet" href="app.css?v=0.8.0">
+    <link rel="stylesheet" href="app.css?v=0.9.0">
 </head>
 <body>
 <header class="topbar">
@@ -13,6 +13,7 @@
         <span>SeatLock</span>
     </a>
     <nav class="links">
+        <a class="keep" href="#tickets">Find my tickets</a>
         <a href="/swagger-ui.html" target="_blank" rel="noopener">API docs</a>
         <div id="account-area" class="account-area"></div>
     </nav>
@@ -103,6 +104,7 @@
     <section id="auth-view" aria-label="Sign in" hidden></section>
     <section id="account-view" aria-label="My account" hidden></section>
     <section id="info-view" hidden></section>
+    <section id="tickets-view" aria-label="Find my tickets" hidden></section>
 </main>
 
 <footer class="footer">
@@ -115,6 +117,7 @@
             <div>
                 <h3>Help</h3>
                 <a href="#help">Help &amp; support</a>
+                <a href="#tickets">Find my tickets</a>
                 <a href="#bookings">My bookings</a>
             </div>
             <div>
@@ -134,9 +137,10 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="app.js?v=0.8.0"></script>
-<script src="payment.js?v=0.8.0"></script>
-<script src="info.js?v=0.8.0"></script>
-<script src="account.js?v=0.8.0"></script>
+<script src="app.js?v=0.9.0"></script>
+<script src="payment.js?v=0.9.0"></script>
+<script src="tickets.js?v=0.9.0"></script>
+<script src="info.js?v=0.9.0"></script>
+<script src="account.js?v=0.9.0"></script>
 </body>
 </html>

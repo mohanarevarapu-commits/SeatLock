@@ -20,8 +20,10 @@ profile, controllable clock, race harness) see the
   - [Seats and booking references](#seats-and-booking-references)
   - [Web client delivery](#web-client-delivery)
   - [Accounts, sign-in and email](#accounts-sign-in-and-email)
+  - [Tickets, QR codes and Find my tickets](#tickets-qr-codes-and-find-my-tickets)
 - [Manual scenarios: web client](#manual-scenarios-web-client)
 - [Manual scenarios: accounts](#manual-scenarios-accounts)
+- [Manual scenarios: tickets](#manual-scenarios-tickets)
 - [Load test scenario](#load-test-scenario)
 - [Not covered yet](#not-covered-yet)
 
@@ -67,10 +69,19 @@ card** fills one in. Any other card or UPI ID, real or not, is refused.
 
 **Emails**
 
-Booking confirmations, welcome, reset-link and password-changed emails are sent only when a mail
-server is set (`SPRING_MAIL_*`, see the README). Without one, the app log shows
-`No mail server configured (spring.mail.host); not sending "Your SeatLock booking SL-…"` instead.
+Ticket emails, Find my tickets codes, welcome, reset-link and password-changed emails go out only
+when a mail server is set (`SPRING_MAIL_*`, see the README). With the `demo` profile and no mail
+server they are kept in the **demo outbox** instead: open http://localhost:8080/outbox.html on the
+same computer to read them, including the ticket email with its QR code and the 6-digit codes.
 Use an address you can read when you test real email.
+
+**Find my tickets**
+
+Book as a guest first (any email and phone above), then open **Find my tickets** at the top of
+the page and enter the same email and phone. The 6-digit code is in the demo outbox ("Your
+SeatLock ticket code"), or in your inbox with a mail server set up. The email matches in any
+case and the phone with any spacing (`+91 98765 43210` = `+919876543210`); a code works once, for
+10 minutes, and a new one can be sent every 30 seconds.
 
 **Find a booking**
 
@@ -101,6 +112,10 @@ Artemis broker, and GreenMail, an in-memory SMTP server that receives the accoun
 | `controller/AccountIntegrationTest` | Full app over HTTP, GreenMail | 21 |
 | `controller/ReservationFlowIntegrationTest` | Full app over HTTP | 2 |
 | `controller/WebClientIntegrationTest` | Full app over HTTP | 2 |
+| `controller/TicketLookupIntegrationTest` | Full app over HTTP, GreenMail | 9 |
+| `controller/DemoOutboxControllerTest` | Unit | 1 |
+| `notification/DemoOutboxTest` | Unit | 2 |
+| `service/QrCodeGeneratorTest` | Unit | 1 |
 | `service/HoldServiceIntegrationTest` | Full app, H2 | 9 |
 | `service/BookingServiceIntegrationTest` | Full app, H2 | 6 |
 | `service/HoldExpiryServiceIntegrationTest` | Full app, H2 | 3 |
@@ -108,7 +123,7 @@ Artemis broker, and GreenMail, an in-memory SMTP server that receives the accoun
 | `service/QueuedCheckoutIntegrationTest` | Full app, H2, embedded broker | 7 |
 | `service/VenueLayoutIntegrationTest` | Full app, H2 | 2 |
 | `service/EventListingIntegrationTest` | Full app, H2 | 3 |
-| **Total** | | **127** |
+| **Total** | | **140** |
 
 Parameterised and repeated tests count once per run, so `SeatTest` has 3 methods but 11 runs, and
 `BookingReferenceGeneratorTest` has 3 methods but 22 runs.
@@ -307,6 +322,26 @@ only the emails sent to its own address. `AccountRulesTest` covers the entity ru
 | An API client confirms without a body | Still `201`; the booking has no contact details and no email is sent | `confirmWithoutContactDetailsStillBooksForApiClients` |
 | Looking up a guest's booking by reference | The answer has no `contactEmail` or `contactPhone` and never contains the email | `bookingLookupNeverShowsTheGuestsContactDetails` |
 
+### Tickets, QR codes and Find my tickets
+
+`TicketLookupIntegrationTest` drives the full app over HTTP with emails going to GreenMail; QR codes
+are decoded back with ZXing (`support/QrCodes`), and email parts read with `support/Emails`.
+
+| Scenario | Expected | Test |
+|---|---|---|
+| A guest books two seats at an opera house with a street address | "Your SeatLock booking SL-…" arrives with an HTML part (concert, venue name, address, city, "Opera house · STAGE", each seat by section, row and seat, prices, total, email, phone, `cid:ticket-qr`, the Find my tickets link) and a text part with the same details; the inline image is a PNG whose QR code reads back as the booking reference | `ticketEmailHasTheQrCodeVenueDetailsAndEverySeat` |
+| `GET /api/bookings/{reference}/qr` | `200 image/png` that scans to the reference; `404` for an unknown reference | `qrCodeOfABookingIsServedAsAPng` |
+| A guest has bookings under one email with the same phone written two ways, plus one with another phone and one under another email; asks for a code with the email in capitals and the phone with brackets and dashes | The code is emailed; the lookup returns exactly the two matching bookings, soonest concert first, with event, venue, seat row and number, and total | `guestGetsACodeByEmailAndSeesOnlyTheirOwnTickets` |
+| The same code used twice | Second try `400 Invalid code` | `aCodeWorksOnlyOnce` |
+| A code for an email with no bookings, or the right email with another phone | Both `202`; no code email is sent; a lookup with those details fails | `sameAnswerAndNoEmailWhenNoBookingMatches` |
+| Five wrong codes | Each `400`; after that even the right code is refused | `fiveWrongCodesLockTheCode` |
+| A code used after 10 minutes | `400` | `aCodeExpiresAfterTenMinutes` |
+| Asking for a new code at once, then after 31 seconds | No second email at once; after 31 seconds a new code arrives, the old one stops working, the new one works | `aNewCodeIsSentOnlyAfterThirtySecondsAndReplacesTheOldOne` |
+| An invalid email or phone when asking; a code that is not 6 digits | `400` | `requestsAreValidated` |
+| QR generator | A 320×320 PNG that scans back to the text | `QrCodeGeneratorTest.ticketQrCodeIsAPngThatScansBackToTheReference` |
+| Demo outbox | Newest first, only the last 50; `cid:` images in the HTML become data URIs | `DemoOutboxTest` (2) |
+| Who may read the demo outbox | Only `127.0.0.1` and `::1`; any other address is refused | `DemoOutboxControllerTest.onlyRequestsFromThisMachineMayReadTheOutbox` |
+
 ## Manual scenarios: web client
 
 The page's behaviour in a browser is checked by hand. Start the app with demo data and open
@@ -402,6 +437,25 @@ check real emails, set the `SPRING_MAIL_*` variables first (see the README).
 | A16 | Leaving payment for log-in | During payment, click **Log in** | Seats released ("Booking cancelled"), log-in page shown |
 | A17 | Phone width | Narrow window, logged in | Corner shows only the initials; menu and My bookings fit the screen |
 
+## Manual scenarios: tickets
+
+Start the app with demo data and no mail server, so emails land in the demo outbox at
+http://localhost:8080/outbox.html. Test details are in [Test accounts and test data](#test-accounts-and-test-data).
+
+| # | Scenario | Steps | Expected |
+|---|---|---|---|
+| T1 | QR on the confirmation | Book as a guest (any email, phone `+91 98765 43210`), pay with the test card | "Booking confirmed" shows a QR code above the reference, "Show this QR code, or the booking reference, at the entrance", and a link to Find my tickets; a "Demo: … demo outbox" note links to the outbox |
+| T2 | Ticket email | Open the demo outbox and the newest "Your SeatLock booking SL-…" | A ticket: concert, date and time with the time zone, the QR code with the reference under it, Venue (name, street address, city, type · stage), a Seats table (section, row, seat, price) with the total, Booked for (email, phone), the Find my tickets link, "SeatLock is a demo" |
+| T3 | Scan the QR code | Scan the QR code on the confirmation, in the email or in Find my tickets with a phone camera | It reads the booking reference, e.g. `SL-GPGSHC` |
+| T4 | Find my tickets | **Find my tickets** (header), enter the same email and phone, **Send code** | "If there are bookings for … we've emailed a 6-digit code"; **Send a new code (30s)** counts down; a demo note links to the outbox, which has "Your SeatLock ticket code" (the code is only in the body) |
+| T5 | Enter the code | Type the 6 digits, **View my tickets** | Each ticket with its QR code, reference, concert, time, venue with address, seats by row and number, and total; past concerts under "Past concerts" |
+| T6 | Wrong code | Enter a wrong code | "That code is wrong or has expired. Ask for a new code and try again."; after five wrong codes even the right one is refused |
+| T7 | Same answer for unknown details | Ask for a code with an email that never booked | The same "If there are bookings…" message, and no email in the outbox |
+| T8 | Phone written differently | Ask with `+919876543210` after booking with `+91 98765 43210` | The code arrives; the tickets show |
+| T9 | Signed-in tickets | Log in as the demo account, open **My bookings** | Each booking has a **Ticket QR code** link that opens its QR code |
+| T10 | Outbox only on this computer | From another device on the network, open `http://<this computer's address>:8080/outbox.html` | "The demo outbox is off…": the outbox answers only the computer the app runs on |
+| T11 | Real email | With `SPRING_MAIL_*` set, book with your own email | The ticket email arrives with the QR code shown inside it (some mail apps ask to show images first) |
+
 ## Load test scenario
 
 `load-test/locustfile.py` simulates 500 concert fans against a running app for 2 minutes:
@@ -430,7 +484,10 @@ sold all 5,000 seats with 0 failures and 0 seats sold twice (see the README for 
 - **Real SMTP delivery** is not part of the test suite (GreenMail stands in for the mail server).
   Check it by hand with scenarios A9, A11, A12 and A23 once `SPRING_MAIL_*` is set.
 - **Text messages:** guests give a phone number, but SeatLock has no SMS provider, so booking
-  details go by email only.
+  details and Find my tickets codes go by email only.
+- **Ticket scanning at the door:** a ticket's QR code holds only its booking reference. There is
+  no check-in, so the same code could be shown twice, and anyone who knows a reference can draw
+  its QR code; a real venue would need signed codes and scan-once check-in.
 - **Sessions after a password reset:** other sessions of that account stay signed in until they
   time out (2 hours idle).
 - **MySQL** is not exercised by the test suite; the tests run on H2 in MySQL mode. Run the app

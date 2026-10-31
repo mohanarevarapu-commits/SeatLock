@@ -3,6 +3,7 @@ package com.seatlock.service;
 import com.seatlock.dto.BookingResponse;
 import com.seatlock.dto.ConfirmHoldRequest;
 import com.seatlock.dto.HoldResponse;
+import com.seatlock.dto.TicketResponse;
 import com.seatlock.exception.HoldExpiredException;
 import com.seatlock.exception.HoldNotActiveException;
 import com.seatlock.exception.NotFoundException;
@@ -39,12 +40,13 @@ public class BookingService {
     private final BookingReferenceGenerator referenceGenerator;
     private final AccountRepository accountRepository;
     private final ApplicationEventPublisher events;
+    private final QrCodeGenerator qrCodes;
     private final Clock clock;
 
     public BookingService(BookingRepository bookingRepository, HoldRepository holdRepository,
                           EventSeatRepository eventSeatRepository, HoldService holdService,
                           BookingReferenceGenerator referenceGenerator, AccountRepository accountRepository,
-                          ApplicationEventPublisher events, Clock clock) {
+                          ApplicationEventPublisher events, QrCodeGenerator qrCodes, Clock clock) {
         this.bookingRepository = bookingRepository;
         this.holdRepository = holdRepository;
         this.eventSeatRepository = eventSeatRepository;
@@ -52,6 +54,7 @@ public class BookingService {
         this.referenceGenerator = referenceGenerator;
         this.accountRepository = accountRepository;
         this.events = events;
+        this.qrCodes = qrCodes;
         this.clock = clock;
     }
 
@@ -97,27 +100,48 @@ public class BookingService {
         return toResponse(booking, view);
     }
 
-    /** Sent after commit by BookingMailer; a booking with no account and no contact email gets no email. */
+    /**
+     * The ticket email, sent after commit by BookingMailer: to the account's email for a signed-in
+     * buyer, or to the guest's contact email. A booking with neither gets no email.
+     */
     private void publishConfirmation(Hold hold, Booking booking, HoldResponse view) {
         String email = booking.getContactEmail();
+        String phone = booking.getContactPhone();
         String name = null;
         if (hold.getAccountId() != null) {
             var account = accountRepository.findById(hold.getAccountId()).orElse(null);
             if (account != null) {
                 email = account.getEmail();
+                phone = account.getPhone();
                 name = account.getFullName();
             }
         }
         if (email == null) {
             return;
         }
-        var event = hold.getEvent();
+        events.publishEvent(new BookingConfirmedEvent(email, name, phone, toTicket(booking, view)));
+    }
+
+    /** The QR code printed on a booking's ticket, as a PNG; it holds the booking reference. */
+    @Transactional(readOnly = true)
+    public byte[] ticketQrCode(String reference) {
+        if (!bookingRepository.existsByReference(reference)) {
+            throw new NotFoundException("Booking", reference);
+        }
+        return qrCodes.png(reference);
+    }
+
+    /** A booking as a ticket. Must run inside a transaction: it reads the booking's hold, event and venue. */
+    TicketResponse toTicket(Booking booking) {
+        return toTicket(booking, holdService.toResponse(booking.getHold()));
+    }
+
+    private static TicketResponse toTicket(Booking booking, HoldResponse hold) {
+        var event = booking.getHold().getEvent();
         var venue = event.getVenue();
-        List<String> seats = view.seats().stream()
-                .map(seat -> "%s %s".formatted(seat.section(), seat.label()))
-                .toList();
-        events.publishEvent(new BookingConfirmedEvent(email, name, booking.getReference(), event.getName(),
-                venue.getName(), venue.getCity(), event.getStartsAt(), seats, booking.getTotalCents()));
+        return new TicketResponse(booking.getReference(), event.getId(), event.getName(), event.getStartsAt(),
+                venue.getName(), venue.getType(), venue.getAddress(), venue.getCity(), venue.getStageLabel(),
+                hold.seats(), booking.getTotalCents(), booking.getCreatedAt());
     }
 
     @Transactional(readOnly = true)

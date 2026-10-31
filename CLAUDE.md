@@ -49,7 +49,7 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
   for requests that carry a session cookie; the web client sends `X-XSRF-TOKEN`. Spring Security
   sends `X-Frame-Options: DENY`, so the page cannot be shown in a frame (drive browser tests
   through a test-only page, not an iframe).
-- Web client: `static/app.js` (home page with Today's / Tomorrow's / Selling fast blocks that open lists at `#today`, `#tomorrow`, `#selling-fast`, `#all`; seat map; checkout), `static/payment.js` (the demo card/UPI payment form: accepts only test details, which never leave the browser; never send card data to the server), `static/info.js` (help and policy pages linked from the footer; keep their text true to what the app does) and `static/account.js` (sign-in,
+- Web client: `static/app.js` (home page with Today's / Tomorrow's / Selling fast blocks that open lists at `#today`, `#tomorrow`, `#selling-fast`, `#all`; seat map; checkout), `static/payment.js` (the demo card/UPI payment form: accepts only test details, which never leave the browser; never send card data to the server), `static/tickets.js` (Find my tickets at `#tickets`, and the ticket card with its QR code), `static/info.js` (help and policy pages linked from the footer; keep their text true to what the app does) and `static/account.js` (sign-in,
   profile menu, My bookings, routing by `#hash`; it also starts the page).
 
 ## Concurrency rules (do not break these)
@@ -75,12 +75,17 @@ Layers under `src/main/java/com/seatlock`: `controller` -> `service` -> `reposit
 - Personal data: only account holders' name, email and optional phone, and a guest's contact email
   and phone on their booking (`Booking.contactEmail/contactPhone`, given on the payment page with
   the confirm request, never returned by the API), are stored. `customerRef` must never hold personal data. Passwords only as BCrypt hashes, reset tokens only as SHA-256
-  hashes; never store card details, and never log email bodies (they can hold reset links).
+  hashes; never store card details, and never log email bodies (they can hold reset links or ticket
+  codes; keep codes out of subjects, which are logged). Find my tickets codes are stored only as
+  BCrypt hashes (`TicketAccessCode`).
 - Accounts are optional: never require sign-in for browsing or booking. Pass the signed-in account
   id from the controller (`@AuthenticationPrincipal AccountPrincipal`, null for guests) into the
   service; a hold with an account is usable only by that account (`Hold.isAccessibleBy`, 404 otherwise).
 - Emails: publish an event inside the transaction and send it from an `@Async @TransactionalEventListener`
-  (see `notification/AccountMailer`), never inline. SMTP settings come from `SPRING_MAIL_*` env vars only.
+  (see `notification/AccountMailer`, `BookingMailer`), never inline. SMTP settings come from `SPRING_MAIL_*` env vars only.
+- Demo outbox (`seatlock.mail.demo-outbox`, on in the `demo` profile; page `static/outbox.html`): keeps
+  emails in memory when no mail server is set. It holds codes and reset links, so it must only ever
+  answer loopback requests (`DemoOutboxController.isLoopback`) and must never be on for a public server.
 
 ## Tests
 

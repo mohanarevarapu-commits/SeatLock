@@ -23,4 +23,18 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             order by e.startsAt, b.id
             """)
     List<Booking> findAllByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * Guest bookings made with this contact email (stored lower-case), loaded like
+     * {@link #findAllByAccountId}. The caller still checks the phone number.
+     */
+    @Query("""
+            select b from Booking b
+            join fetch b.hold h
+            join fetch h.event e
+            join fetch e.venue
+            where b.contactEmail = :email and h.accountId is null
+            order by e.startsAt, b.id
+            """)
+    List<Booking> findGuestBookingsByContactEmail(@Param("email") String email);
 }

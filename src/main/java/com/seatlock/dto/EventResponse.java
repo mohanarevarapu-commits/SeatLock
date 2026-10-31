@@ -10,13 +10,13 @@ import java.time.Instant;
  * from {@code fromPriceCents} (the cheapest section).
  */
 public record EventResponse(Long id, String name, Long venueId, String venueName, String venueCity,
-                            VenueType venueType, Instant startsAt, int totalSeats, int availableSeats,
-                            long fromPriceCents) {
+                            String venueAddress, VenueType venueType, Instant startsAt, int totalSeats,
+                            int availableSeats, long fromPriceCents) {
 
     public static EventResponse from(Event event, EventSeatCounts counts) {
         var venue = event.getVenue();
         return new EventResponse(event.getId(), event.getName(), venue.getId(), venue.getName(), venue.getCity(),
-                venue.getType(), event.getStartsAt(), counts.totalSeats().intValue(),
+                venue.getAddress(), venue.getType(), event.getStartsAt(), counts.totalSeats().intValue(),
                 counts.availableSeats().intValue(), counts.fromPriceCents());
     }
 }

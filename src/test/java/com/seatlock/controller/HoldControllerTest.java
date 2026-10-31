@@ -64,7 +64,7 @@ class HoldControllerTest {
     @Test
     void createHoldReturns201WithLocation() throws Exception {
         given(holdService.createHold(eq(1L), any(), isNull())).willReturn(new HoldResponse(42L, 1L, "abc", HoldStatus.ACTIVE,
-                EXPIRES, 5_000, List.of(new SeatLine(7L, "Main", "A1", 5_000))));
+                EXPIRES, 5_000, List.of(new SeatLine(7L, "Main", "A1", 5_000, "A", 1))));
 
         mvc.perform(post("/api/events/1/holds").contentType(MediaType.APPLICATION_JSON)
                         .content("""

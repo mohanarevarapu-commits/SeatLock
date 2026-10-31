@@ -23,7 +23,7 @@ public class VenueService {
 
     @Transactional
     public VenueResponse createVenue(CreateVenueRequest request) {
-        Venue venue = new Venue(request.name(), request.city(),
+        Venue venue = new Venue(request.name(), request.city(), request.address(),
                 Objects.requireNonNullElse(request.type(), VenueType.ARENA),
                 Objects.requireNonNullElse(request.stageZone(), MapZone.NORTH),
                 request.stageLabel() == null || request.stageLabel().isBlank() ? "STAGE" : request.stageLabel().strip());

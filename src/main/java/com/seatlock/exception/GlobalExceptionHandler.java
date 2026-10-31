@@ -49,6 +49,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.UNAUTHORIZED, "Sign-in failed", "Email or password is incorrect.");
     }
 
+    @ExceptionHandler(InvalidTicketCodeException.class)
+    ProblemDetail handleInvalidTicketCode(InvalidTicketCodeException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid code", ex.getMessage());
+    }
+
     @ExceptionHandler(HoldExpiredException.class)
     ProblemDetail handleHoldExpired(HoldExpiredException ex) {
         return problem(HttpStatus.GONE, "Hold expired", ex.getMessage());

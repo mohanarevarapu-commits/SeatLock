@@ -345,7 +345,9 @@ function bookingItem(booking) {
             el("span", {}, booking.seats.map(s => `${s.section} ${s.label}`).join(", "))),
         el("div", { class: "booking-side" },
             el("span", { class: "ref" }, booking.reference),
-            el("strong", {}, money(booking.totalCents))));
+            el("strong", {}, money(booking.totalCents)),
+            el("a", { class: "small", href: `/api/bookings/${encodeURIComponent(booking.reference)}/qr`,
+                target: "_blank", rel: "noopener" }, "Ticket QR code")));
 }
 
 function profileCard(me) {
@@ -396,6 +398,10 @@ function route() {
     if (isInfoRoute(hash)) {
         // Help and policy pages; leaving the payment page is handled by its popstate listener.
         renderInfo(hash.slice(1));
+        return;
+    }
+    if (hash === "#tickets") {
+        renderTickets();   // Find my tickets, in tickets.js
         return;
     }
     if (!accountRoute) {

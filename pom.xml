@@ -13,7 +13,7 @@
 
     <groupId>com.seatlock</groupId>
     <artifactId>seatlock</artifactId>
-    <version>0.8.0</version>
+    <version>0.9.0</version>
     <name>SeatLock</name>
     <description>High-concurrency concert ticket reservation engine</description>
 
@@ -63,6 +63,12 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>2.8.9</version>
+        </dependency>
+        <dependency>
+            <!-- QR codes on tickets (booking emails, the ticket pages). Only the core encoder is used. -->
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
         </dependency>
 
         <dependency>

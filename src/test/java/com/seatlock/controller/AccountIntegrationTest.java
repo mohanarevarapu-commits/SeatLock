@@ -18,6 +18,7 @@ import com.jayway.jsonpath.JsonPath;
 import com.seatlock.dto.EventResponse;
 import com.seatlock.model.Booking;
 import com.seatlock.repository.BookingRepository;
+import com.seatlock.support.Emails;
 import com.seatlock.support.IntegrationTest;
 import jakarta.mail.internet.MimeMessage;
 import java.time.Duration;
@@ -297,9 +298,9 @@ class AccountIntegrationTest extends IntegrationTest {
 
         MimeMessage confirmation = awaitEmails(email, 1).get(0);
         assertThat(confirmation.getSubject()).isEqualTo("Your SeatLock booking " + reference);
-        assertThat(GreenMailUtil.getBody(confirmation))
-                .contains("Hi there", reference, "Test Show", "Test Hall, Testville", "Main A1", "$50.00",
-                        "http://seatlock.test");
+        assertThat(Emails.part(confirmation, "text/plain"))
+                .contains("Hi there", reference, "Test Show", "Test Hall", "Testville", "Main · Row A · Seat 1",
+                        "Total: $50.00", email, "+44 20 7946 0000", "http://seatlock.test/#tickets");
         Booking booking = bookingRepository.findByReference(reference).orElseThrow();
         assertThat(booking.getContactEmail()).isEqualTo(email);
         assertThat(booking.getContactPhone()).isEqualTo("+44 20 7946 0000");
@@ -319,7 +320,7 @@ class AccountIntegrationTest extends IntegrationTest {
 
         MimeMessage confirmation = awaitEmails(email, 2).get(1);
         assertThat(confirmation.getSubject()).isEqualTo("Your SeatLock booking " + reference);
-        assertThat(GreenMailUtil.getBody(confirmation)).contains("Hi Meera Iyer");
+        assertThat(Emails.part(confirmation, "text/plain")).contains("Hi Meera Iyer", "My bookings");
         assertThat(emailsTo(other)).isEmpty();
         assertThat(bookingRepository.findByReference(reference).orElseThrow().getContactEmail()).isNull();
     }

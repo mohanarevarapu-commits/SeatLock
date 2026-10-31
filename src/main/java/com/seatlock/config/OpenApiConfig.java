@@ -14,7 +14,7 @@ public class OpenApiConfig {
     OpenAPI seatLockOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("SeatLock API")
-                .version("0.8.0")
+                .version("0.9.0")
                 .description("""
                         Ticket reservation API. Hold seats for a limited time, then confirm the hold \
                         into a booking. A seat is never held or sold to two customers at once. \

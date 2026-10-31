@@ -89,7 +89,8 @@ public class DemoDataLoader implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         // End stage, seats in front: the classic arena concert.
-        VenueResponse riverside = venue("Riverside Arena", "Example City", VenueType.ARENA, NORTH, "STAGE", List.of(
+        VenueResponse riverside = venue("Riverside Arena", "Example City", "1 Riverside Way",
+                VenueType.ARENA, NORTH, "STAGE", List.of(
                 section("Floor", SOUTH, 20, 25, 12_000),
                 section("Lower Bowl", SOUTH, 30, 50, 8_500),
                 section("Upper Bowl", SOUTH, 40, 75, 4_500)));
@@ -97,7 +98,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(riverside, "Synthwave Sample Night", 45, 20, 0);
 
         // Stage in the round: seats on every side.
-        VenueResponse dome = venue("Meridian Dome", "Northvale", VenueType.ARENA, CENTER, "STAGE IN THE ROUND", List.of(
+        VenueResponse dome = venue("Meridian Dome", "Northvale", "200 Dome Boulevard",
+                VenueType.ARENA, CENTER, "STAGE IN THE ROUND", List.of(
                 section("North Stand", NORTH, 10, 30, 9_500),
                 section("South Stand", SOUTH, 10, 30, 9_500),
                 section("West Stand", WEST, 10, 20, 8_000),
@@ -110,7 +112,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(dome, "Neon Orbit 360", 60, 19, 30);
 
         // Stadium concert: main stage at one end, seats on the pitch and stands around it.
-        VenueResponse stadium = venue("Harbourline Stadium", "Port Ellis", VenueType.STADIUM, NORTH, "MAIN STAGE", List.of(
+        VenueResponse stadium = venue("Harbourline Stadium", "Port Ellis", "Harbour Road",
+                VenueType.STADIUM, NORTH, "MAIN STAGE", List.of(
                 section("Pitch Floor", CENTER, 20, 40, 15_000),
                 section("South Stand", SOUTH, 25, 60, 7_500),
                 section("West Stand", WEST, 25, 45, 6_500),
@@ -123,7 +126,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(stadium, "Big Sky Anthems", 75, 19, 0);
 
         // Cricket ground: stage on the square, stands all the way round the boundary.
-        VenueResponse cricket = venue("Oakmoor Cricket Ground", "Westbrook", VenueType.GROUND, CENTER, "PITCH STAGE", List.of(
+        VenueResponse cricket = venue("Oakmoor Cricket Ground", "Westbrook", "Oakmoor Lane",
+                VenueType.GROUND, CENTER, "PITCH STAGE", List.of(
                 section("Pavilion End", NORTH, 12, 40, 9_000),
                 section("Nursery End", SOUTH, 12, 40, 7_000),
                 section("Members' Stand", WEST, 12, 30, 11_000),
@@ -135,7 +139,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(cricket, "Boundary Beats Open Air", 25, 17, 30);
 
         // Open-air ground with the stage on the west side.
-        VenueResponse fairground = venue("Old Mill Fairground", "Lakeside", VenueType.GROUND, WEST, "SIDE STAGE", List.of(
+        VenueResponse fairground = venue("Old Mill Fairground", "Lakeside", "Mill Field Road",
+                VenueType.GROUND, WEST, "SIDE STAGE", List.of(
                 section("Front Lawn", CENTER, 20, 30, 6_000),
                 section("Back Lawn", EAST, 20, 30, 4_000),
                 section("North Bank", NORTH_WEST, 6, 15, 5_000),
@@ -152,7 +157,8 @@ public class DemoDataLoader implements ApplicationRunner {
                 section("Stage Box Right", NORTH_EAST, 2, 2, 30_000)));
         crescent.addAll(boxes('A', 4, WEST, 2, 3, 25_000));
         crescent.addAll(boxes('E', 4, EAST, 2, 3, 25_000));
-        VenueResponse crescentHouse = venue("Royal Crescent Opera House", "Example City", VenueType.OPERA_HOUSE, NORTH,
+        VenueResponse crescentHouse = venue("Royal Crescent Opera House", "Example City", "12 Crescent Square",
+                VenueType.OPERA_HOUSE, NORTH,
                 "STAGE · ORCHESTRA PIT", crescent);
         event(crescentHouse, "The Glass Garden: An Opera in Three Acts", 35, 19, 0);
         event(crescentHouse, "Midwinter Gala Night", 90, 19, 30);
@@ -164,11 +170,13 @@ public class DemoDataLoader implements ApplicationRunner {
                 section("Upper Gallery", NORTH, 6, 30, 5_000)));
         lumen.addAll(boxes('1', 3, WEST, 2, 4, 22_000));
         lumen.addAll(boxes('4', 3, EAST, 2, 4, 22_000));
-        VenueResponse lumenHouse = venue("Teatro Lumen", "Port Ellis", VenueType.OPERA_HOUSE, SOUTH, "STAGE", lumen);
+        VenueResponse lumenHouse = venue("Teatro Lumen", "Port Ellis", "8 Lumen Quay",
+                VenueType.OPERA_HOUSE, SOUTH, "STAGE", lumen);
         event(lumenHouse, "Requiem for a Paper Moon", 40, 19, 30);
 
         // Thrust stage: the audience sits on three sides, backstage is behind it.
-        VenueResponse lantern = venue("Lantern Street Theatre", "Northvale", VenueType.THEATRE, CENTER, "THRUST STAGE", List.of(
+        VenueResponse lantern = venue("Lantern Street Theatre", "Northvale", "34 Lantern Street",
+                VenueType.THEATRE, CENTER, "THRUST STAGE", List.of(
                 section("Front Stalls", SOUTH, 10, 20, 7_500),
                 section("Left Side", WEST, 8, 12, 6_500),
                 section("Right Side", EAST, 8, 12, 6_500),
@@ -177,7 +185,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(lantern, "Tidewater: A New Play", 15, 19, 45);
 
         // Concert hall with choir seats behind the orchestra and terraces around it.
-        VenueResponse lakeview = venue("Lakeview Concert Hall", "Lakeside", VenueType.CONCERT_HALL, CENTER, "ORCHESTRA", List.of(
+        VenueResponse lakeview = venue("Lakeview Concert Hall", "Lakeside", "2 Lakeview Promenade",
+                VenueType.CONCERT_HALL, CENTER, "ORCHESTRA", List.of(
                 section("Choir Seats", NORTH, 4, 24, 4_000),
                 section("Stalls", SOUTH, 18, 30, 9_000),
                 section("West Terrace", WEST, 8, 10, 7_000),
@@ -187,7 +196,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(lakeview, "Strings Under Glass", 28, 19, 30);
 
         // Open-air amphitheatre fanning out from the stage.
-        VenueResponse bowl = venue("Sunset Bowl Amphitheatre", "Westbrook", VenueType.AMPHITHEATRE, NORTH, "STAGE", List.of(
+        VenueResponse bowl = venue("Sunset Bowl Amphitheatre", "Westbrook", "Sunset Hill Park",
+                VenueType.AMPHITHEATRE, NORTH, "STAGE", List.of(
                 section("Lower Arc", SOUTH, 15, 40, 6_500),
                 section("Upper Arc", SOUTH, 12, 50, 3_500),
                 section("West Fan", WEST, 10, 12, 5_000),
@@ -197,7 +207,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(bowl, "Starlight Sessions", 22, 20, 0);
 
         // Function hall with the stage and dance floor along the east wall.
-        VenueResponse pearl = venue("Grand Pearl Banquet Hall", "Example City", VenueType.FUNCTION_HALL, EAST,
+        VenueResponse pearl = venue("Grand Pearl Banquet Hall", "Example City", "77 Pearl Avenue",
+                VenueType.FUNCTION_HALL, EAST,
                 "STAGE & DANCE FLOOR", List.of(
                         section("Front Floor", CENTER, 10, 16, 9_000),
                         section("Rear Floor", WEST, 10, 16, 6_000),
@@ -206,7 +217,8 @@ public class DemoDataLoader implements ApplicationRunner {
         event(pearl, "Golden Hour Gala Dinner", 16, 19, 0);
 
         // Small club with the stage in a corner.
-        VenueResponse velvet = venue("The Velvet Room", "Lakeside", VenueType.CLUB, SOUTH_WEST, "CORNER STAGE", List.of(
+        VenueResponse velvet = venue("The Velvet Room", "Lakeside", "9 Velvet Lane",
+                VenueType.CLUB, SOUTH_WEST, "CORNER STAGE", List.of(
                 section("Front Tables", CENTER, 8, 12, 4_500),
                 section("Side Bench", WEST, 8, 4, 3_000),
                 section("Stage Side", SOUTH, 4, 8, 4_000),
@@ -272,9 +284,11 @@ public class DemoDataLoader implements ApplicationRunner {
         bookingService.confirmHold(hold.id(), account.getId());
     }
 
-    private VenueResponse venue(String name, String city, VenueType type, MapZone stageZone, String stageLabel,
-                                List<SectionRequest> sections) {
-        return venueService.createVenue(new CreateVenueRequest(name, city, type, stageZone, stageLabel, sections));
+    /** @param address a fictional street address, shown on tickets */
+    private VenueResponse venue(String name, String city, String address, VenueType type, MapZone stageZone,
+                                String stageLabel, List<SectionRequest> sections) {
+        return venueService.createVenue(new CreateVenueRequest(name, city, type, stageZone, stageLabel, sections,
+                address));
     }
 
     private static SectionRequest section(String name, MapZone zone, int rows, int seatsPerRow, long priceCents) {

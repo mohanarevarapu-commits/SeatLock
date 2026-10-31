@@ -398,6 +398,80 @@ button.seat:disabled { cursor: not-allowed; }
 .or { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--muted); font-size: 0.85rem; }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 
+/* Find my tickets (tickets.js) and the ticket card, also used on the booking confirmation. */
+.tickets-page { max-width: 760px; margin: 0 auto; }
+.tickets-card { display: grid; gap: 14px; padding: 24px; }
+.tickets-card h1 { margin: 0; }
+.tickets-card > .form, .ticket-results { display: grid; gap: 14px; }
+.tickets-card .muted { margin: 0; }
+.code-input { font-size: 1.4rem; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; max-width: 220px; }
+.code-links { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.demo-hint {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--stage);
+    color: var(--stage-text);
+    font-size: 0.88rem;
+}
+.demo-hint a { color: inherit; font-weight: 600; }
+.ticket {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 18px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg);
+}
+.ticket.past { opacity: 0.7; }
+.ticket-main { display: grid; gap: 8px; min-width: 0; }
+.ticket-main h3, .ticket-main p { margin: 0; }
+.ticket-main h3 { font-size: 1.15rem; }
+.ticket-when { font-weight: 600; }
+.ticket-venue { font-size: 0.92rem; line-height: 1.5; }
+.ticket .total { margin-bottom: 0; }
+.badge-ticket {
+    justify-self: start;
+    padding: 1px 9px;
+    border-radius: 999px;
+    background: var(--stage);
+    color: var(--stage-text);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.ticket-qr { display: grid; justify-items: center; align-content: start; gap: 6px; }
+.ticket-qr img, .confirmation-qr { background: #fff; border-radius: 10px; padding: 6px; }
+.confirmation-qr { justify-self: center; margin: 6px 0 2px; }
+.past-heading { font-size: 1rem; margin: 8px 0 0; }
+
+/* The demo outbox page (outbox.html). */
+.outbox-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+.outbox-head p { max-width: 720px; margin: 4px 0 0; }
+.outbox-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+.outbox-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.outbox-item {
+    display: grid;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.outbox-item:hover, .outbox-item.active { border-color: var(--accent); }
+.outbox-item strong { font-size: 0.92rem; }
+.outbox-meta h2 { font-size: 1.1rem; margin: 0; }
+.outbox-meta p { margin: 4px 0 12px; }
+.outbox-frame { width: 100%; height: 75vh; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.outbox-text { white-space: pre-wrap; font: 0.9rem/1.5 ui-monospace, Menlo, monospace; margin: 0; }
+
 /* Demo payment form (payment.js). */
 .payment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .payment-head h3 { margin: 0; }
@@ -547,6 +621,10 @@ a { color: var(--accent); }
     .sidebar { position: static; }
     .topbar { padding: 12px 16px; }
     .links > a { display: none; }
+    .links > a.keep { display: inline; font-size: 0.9rem; }
+    .ticket { grid-template-columns: minmax(0, 1fr); }
+    .ticket-qr { justify-items: start; }
+    .outbox-layout { grid-template-columns: minmax(0, 1fr); }
     .avatar-name { display: none; }
     .avatar-button { padding: 3px; }
     .show-row .show-side .muted { display: none; }

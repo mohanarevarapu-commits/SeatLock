@@ -20,5 +20,5 @@ public record RateLimitProperties(
         @DefaultValue("true") boolean enabled,
         @Min(1) @DefaultValue("5") int requestsPerSecond,
         @NotEmpty @DefaultValue({"/api/events/*/holds", "/api/events/*/purchase-requests", "/api/holds/*/confirm",
-                "/api/auth/*"}) List<String> paths) {
+                "/api/auth/*", "/api/tickets/*"}) List<String> paths) {
 }

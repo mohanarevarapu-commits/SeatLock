@@ -9,6 +9,7 @@ the steps.
 
 | Version | Date | Theme | Automated tests | Commits |
 |---|---|---|---|---|
+| [0.9.0](#090--2026-10-31) | 2026-10-31 | Ticket email with QR code and venue details; Find my tickets with email, phone and a one-time code; demo outbox; release jar run locally | 140 | tag `v0.9.0` |
 | [0.8.0](#080--2026-10-31) | 2026-10-31 | Log in, sign up or continue as guest; guest email and phone on the payment page, then Pay now; booking confirmation emails; always start on the home page | 127 | tag `v0.8.0` |
 | [0.7.0](#070--2026-10-31) | 2026-10-31 | Home page blocks that open their lists; demo payment page with card and UPI (test details only) | 122 | released in the `v0.8.0` commit (no separate tag) |
 | [0.6.0](#060--2026-10-31) | 2026-10-31 | Minimal home page: description, search, Today / Tomorrow / Selling fast boxes, What we offer, footer with help and policy pages; live seat status; seat totals in the event API | 122 | tag `v0.6.0` |
@@ -17,6 +18,70 @@ the steps.
 | [0.3.0](#030--2026-10-30) | 2026-10-30 | Traffic spikes: rate limiting, queued checkout, load testing | 86 | `085ece7`, `36a7108` |
 | [0.2.0](#020--2026-10-30) | 2026-10-30 | API documentation and Swagger UI | 73 | `1bd34eb` |
 | [0.1.0](#010--2026-10-30) | 2026-10-30 | Core reservation backend | 73 | `7950665` |
+
+---
+
+## 0.9.0 — 2026-10-31
+
+Tickets: a QR code and the venue's details in every booking email, and Find my tickets for guests.
+
+### Added
+
+- **Ticket email:** "Your SeatLock booking SL-…" is now a ticket, in HTML with a plain-text
+  version: the concert and its time (in `seatlock.accounts.time-zone`, default the server's zone,
+  with the zone named), a **QR code** shown inside the email (an inline PNG holding the booking
+  reference), the **venue** (name, street address, city, type and stage), every seat by section,
+  row and seat number with its price, the total, who it is booked for, and how to see it again
+  (Find my tickets for guests, My bookings for accounts).
+- **QR codes:** `GET /api/bookings/{reference}/qr` (320×320 PNG), drawn with ZXing `core` 3.5.3
+  (`QrCodeGenerator`). Shown on the booking confirmation, on Find my tickets, and as a **Ticket QR
+  code** link in My bookings.
+- **Find my tickets** (`#tickets`, in the header and footer): a guest enters the email and phone
+  number they paid with, clicks **Send code**, gets a **6-digit code by email** and sees their tickets.
+  - `POST /api/tickets/code` (always `202`) and `POST /api/tickets/lookup`.
+  - A code works once, for 10 minutes; 5 wrong tries end it; a new code replaces the old one and is
+    sent at most every 30 seconds. Only a BCrypt hash of the code is stored (`TicketAccessCode`).
+  - The same answer, and the same hashing work, whether or not bookings match, so nobody can find
+    out who has booked. The code is only in the email body, never the subject (subjects are logged).
+  - Email matched in any case, phone with any spacing, brackets or dashes; rate-limited with the
+    checkout paths (`/api/tickets/*`).
+- **Venue address:** optional `address` on venues (create request, venue and event responses),
+  printed on tickets; the 12 demo venues have fictional addresses.
+- **Seat rows:** seat lines (in holds, bookings and tickets) also give `row` and seat `number`.
+- **Demo outbox** (`seatlock.mail.demo-outbox`, on in the `demo` profile): with no mail server,
+  emails are kept in memory (last 50) and shown at `/outbox.html`, so the ticket email and codes
+  can be seen without SMTP. It answers only requests from the same computer.
+
+### Changed
+
+- `EmailSender` sends HTML emails with inline images (multipart), and plain text as before.
+- Guest contact emails are stored lower-case, so Find my tickets matches them in any case.
+- Help, Privacy and Security pages explain ticket emails, Find my tickets and its codes.
+- Version 0.9.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links.
+
+### Known limitations
+
+- Codes go by email only; there is no SMS service.
+- A ticket's QR code holds only the booking reference: there is no scan-once check-in.
+
+### Run
+
+- Built with `./mvnw clean package` and run as a jar with the demo data:
+  `java -jar target/seatlock-0.9.0.jar --spring.profiles.active=demo` (http://localhost:8080).
+  Nothing is published to a public server.
+
+### Tested
+
+| What | How | Result |
+|---|---|---|
+| Full test suite | `./mvnw clean package` | 140 tests, 0 failures (13 new) |
+| Ticket email | GreenMail | HTML and text parts carry the concert, venue name, address, city, type and stage, each seat by row and number, prices, total, email and phone; the inline image is a PNG whose QR code decodes to the reference |
+| QR endpoint | HTTP, decoded with ZXing | PNG scans to the reference; unknown reference `404` |
+| Find my tickets | HTTP, GreenMail, controllable clock | Code by email; lookup returns only the matching guest bookings, soonest first; email in capitals and phone with brackets match; code works once; unknown details get the same `202` and no email; 5 wrong tries lock it; expires after 10 minutes; a new code only after 30 seconds and it replaces the old one; validation `400` |
+| Demo outbox | Unit tests | Newest first, last 50, images as data URIs; loopback addresses only |
+| Release jar | `java -jar` with the demo profile | Starts in under 3 seconds; reports 0.9.0; venues have addresses; outbox answers this computer |
+| In the browser | Headless Chrome against the same build | Guest booking `SL-GPGSHC`: QR shown on the confirmation; ticket email in the outbox with the QR image, venue address and both seats; Find my tickets with the email in other capitals and the phone with dashes; code email (code not in the subject); wrong code refused; right code shows the ticket with its QR code and address; screenshots of the confirmation, the tickets page and the ticket email |
+| Manual scenarios | `docs/TESTING.md` T1–T11, test data for Find my tickets | |
 
 ---
 
@@ -57,7 +122,8 @@ Book as a guest or log in, and booking details by email.
 - **Personal data rule:** guests now give an email and phone number when they pay, kept with
   their booking (README, CLAUDE.md and the Privacy page updated).
 - Version 0.8.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links. The account
-  notifications (watchlist, "booking opens" alerts, reminders, "selling fast" emails) move to 0.9.0.
+  notifications (watchlist, "booking opens" alerts, reminders, "selling fast" emails) move to a later
+  version (0.9.0 became tickets and Find my tickets).
 
 ### Fixed
 
@@ -118,7 +184,7 @@ Home page blocks, and a demo payment page with card and UPI.
   and the bars are gone.
 - Version 0.7.0 in `pom.xml`, the OpenAPI spec and the `?v=` file links. The account
   notifications planned for 0.7.0 (watchlist, "booking opens" alerts, reminders, "selling fast"
-  emails) move to a later version (now 0.9.0).
+  emails) move to a later version.
 
 ### Known limitations
 
@@ -198,7 +264,7 @@ A minimal home page instead of one long strip of shows.
 ## 0.5.0 — 2026-10-31
 
 Optional buyer accounts. Phase 1 of 2: watchlist, "booking opens" alerts, show reminders and
-"selling fast" emails come later (now planned for 0.9.0).
+"selling fast" emails come in a later version.
 
 ### Added
 

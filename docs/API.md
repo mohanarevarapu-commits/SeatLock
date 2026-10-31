@@ -24,6 +24,7 @@ Conventions:
 - [Events and seat maps](#events-and-seat-maps)
 - [Holds](#holds)
 - [Bookings](#bookings)
+- [Find my tickets](#find-my-tickets)
 - [Accounts](#accounts)
 - [Errors](#errors)
 - [Queued checkout](#queued-checkout)
@@ -69,6 +70,7 @@ facing the stage, with row `A` nearest to it.
 |---|---|---|
 | `name` | string | required, max 120 chars |
 | `city` | string | required, max 120 chars |
+| `address` | string | optional, max 200 chars, street address shown on tickets, e.g. `12 Crescent Square` |
 | `type` | string | optional: `ARENA` (default), `STADIUM`, `GROUND`, `OPERA_HOUSE`, `THEATRE`, `CONCERT_HALL`, `AMPHITHEATRE`, `FUNCTION_HALL`, `CLUB` |
 | `stageZone` | string | optional map zone, default `NORTH` |
 | `stageLabel` | string | optional, max 30 chars, text drawn on the stage; default `STAGE` |
@@ -148,6 +150,7 @@ curl -s -X POST localhost:8080/api/events -H 'Content-Type: application/json' -d
   "venueId": 2,
   "venueName": "Harbor Hall",
   "venueCity": "Example City",
+  "venueAddress": "1 Harbor Street",
   "venueType": "THEATRE",
   "startsAt": "2026-12-31T20:00:00Z",
   "totalSeats": 120,
@@ -233,8 +236,8 @@ curl -s -X POST localhost:8080/api/events/3/holds -H 'Content-Type: application/
   "expiresAt": "2026-10-30T11:05:33.663534Z",
   "totalCents": 10000,
   "seats": [
-    { "eventSeatId": 10001, "section": "Stalls", "label": "A1", "priceCents": 5000 },
-    { "eventSeatId": 10002, "section": "Stalls", "label": "A2", "priceCents": 5000 }
+    { "eventSeatId": 10001, "section": "Stalls", "label": "A1", "priceCents": 5000, "row": "A", "number": 1 },
+    { "eventSeatId": 10002, "section": "Stalls", "label": "A2", "priceCents": 5000, "row": "A", "number": 2 }
   ]
 }
 ```
@@ -307,8 +310,8 @@ phone gets `400` and nothing is booked.
   "totalCents": 10000,
   "createdAt": "2026-10-30T10:55:33.691589Z",
   "seats": [
-    { "eventSeatId": 10001, "section": "Stalls", "label": "A1", "priceCents": 5000 },
-    { "eventSeatId": 10002, "section": "Stalls", "label": "A2", "priceCents": 5000 }
+    { "eventSeatId": 10001, "section": "Stalls", "label": "A1", "priceCents": 5000, "row": "A", "number": 1 },
+    { "eventSeatId": 10002, "section": "Stalls", "label": "A2", "priceCents": 5000, "row": "A", "number": 2 }
   ]
 }
 ```
@@ -328,7 +331,71 @@ phone gets `400` and nothing is booked.
 
 Fetches a booking by its reference, in the same shape as the confirm response. References are
 `SL-` plus 6 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no `0`, `O`, `1`, `I` or `L`, so
-they are easy to read out). `404` if not found.
+they are easy to read out). `404` if not found. Each seat has its `section`, its `row` and seat
+`number`, the two together as `label` (e.g. `A12`), and its `priceCents`.
+
+### `GET /api/bookings/{reference}/qr`
+
+The ticket's QR code: a 320×320 PNG (`image/png`) that holds the booking reference, e.g.
+`SL-7KQ2MX`, so any QR scanner reads the reference a venue looks the booking up by. The same code
+is in the booking email and on the web client's confirmation, My bookings and Find my tickets.
+`404` for an unknown reference.
+
+## Find my tickets
+
+A guest who booked without an account sees their tickets again with the email and phone number
+they gave when paying, and a one-time code (OTP) sent to that email. There is no SMS service, so
+the code goes by email only.
+
+### `POST /api/tickets/code`
+
+```json
+{ "email": "guest.fan@example.com", "phone": "+91 98765 43210" }
+```
+
+Always `202 Accepted` with no body, whether or not there are bookings for these details, so the
+answer cannot be used to find out who has booked. If guest bookings match (email in any case,
+phone with any spacing, brackets or dashes), a 6-digit code is emailed ("Your SeatLock ticket
+code"; the code is only in the body). A code works once, for **10 minutes**, and ends after **5
+wrong tries**. A new code replaces the old one, but is only sent **30 seconds** after the last;
+asking sooner gets the same `202` and no email. Only a BCrypt hash of the code is stored.
+`400` if the email or phone is not valid.
+
+### `POST /api/tickets/lookup`
+
+```json
+{ "email": "guest.fan@example.com", "phone": "+91 98765 43210", "code": "482913" }
+```
+
+`200 OK` with the guest's tickets, soonest concert first:
+
+```json
+[
+  {
+    "reference": "SL-GPGSHC",
+    "eventId": 9,
+    "eventName": "The Glass Garden: An Opera in Three Acts",
+    "startsAt": "2026-12-05T13:30:00Z",
+    "venueName": "Royal Crescent Opera House",
+    "venueType": "OPERA_HOUSE",
+    "venueAddress": "12 Crescent Square",
+    "venueCity": "Example City",
+    "stageLabel": "STAGE · ORCHESTRA PIT",
+    "seats": [
+      { "eventSeatId": 2311, "section": "Stalls", "label": "A3", "priceCents": 15000, "row": "A", "number": 3 }
+    ],
+    "totalCents": 15000,
+    "bookedAt": "2026-10-31T10:48:55Z"
+  }
+]
+```
+
+A wrong, used, expired or locked code gets the same `400`, so the answer says nothing about which:
+
+```json
+{ "title": "Invalid code", "status": 400,
+  "detail": "That code is wrong or has expired. Ask for a new code and try again." }
+```
 
 ---
 
@@ -511,7 +578,8 @@ curl -s -X POST localhost:8080/api/events/1/purchase-requests -H 'Content-Type: 
 ## Rate limiting
 
 The checkout endpoints, `POST /api/events/{id}/holds`, `POST /api/events/{id}/purchase-requests`
-and `POST /api/holds/{id}/confirm`, and the sign-in endpoints `POST /api/auth/*`, together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
+and `POST /api/holds/{id}/confirm`, the sign-in endpoints `POST /api/auth/*` and Find my tickets
+(`POST /api/tickets/*`) together allow **5 requests per second per client IP**, with bursts of up to 5. Each IP has a
 token bucket that refills continuously, so one request is allowed again every 200 ms. Other
 endpoints, including the seat map, are not limited.
 

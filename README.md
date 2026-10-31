@@ -33,11 +33,18 @@ as SHA-256 hashes, and SeatLock never asks for or stores card details.
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo       # run with demo venues and shows
 ```
 
+Or build the release jar (runs every test first) and run it like a server would:
+
+```bash
+./mvnw clean package
+java -jar target/seatlock-0.9.0.jar --spring.profiles.active=demo
+```
+
 Open [`http://localhost:8080`](http://localhost:8080) for the web client. The API is at
 `http://localhost:8080/api`.
 
-The `demo` profile seeds 12 fictional venues and 16 upcoming shows, each venue with its own stage
-position:
+The `demo` profile seeds 12 fictional venues (each with a fictional street address) and 20
+upcoming shows, each venue with its own stage position:
 
 | Venue | Type | Stage | Seats | Shows |
 |---|---|---|---|---|
@@ -160,8 +167,34 @@ SMTP provider works the same way with its own host, port and credentials. STARTT
 default.
 
 Without `SPRING_MAIL_HOST`, the app still runs and skips emails with a warning in the log (the
-email content, which can contain a reset link, is never logged). Set `SEATLOCK_BASE_URL` when the
-app is not at `http://localhost:8080`, so links in emails point to the right place.
+email content, which can contain a reset link or a ticket code, is never logged). Set
+`SEATLOCK_BASE_URL` when the app is not at `http://localhost:8080`, so links in emails point to
+the right place, and `SEATLOCK_TIME_ZONE` (e.g. `Asia/Kolkata`) if concert times in emails should
+use a different zone from the server's.
+
+#### The demo outbox
+
+With the `demo` profile and no mail server, emails are not dropped: they are kept in memory and
+shown at [`http://localhost:8080/outbox.html`](http://localhost:8080/outbox.html), newest first.
+Open it to see a booking's ticket email (with its QR code) or the code for Find my tickets. The
+outbox only answers requests from the computer the app runs on, keeps the last 50 emails and
+forgets them when the app stops. Never run a public server with the `demo` profile.
+
+### Tickets, QR codes and Find my tickets
+
+- **Ticket email:** after paying, the buyer gets "Your SeatLock booking SL-…": the concert and
+  time, a **QR code** (it holds the booking reference), the **venue** (name, street address,
+  city, type and stage), every seat by section, row and seat number with its price, the total,
+  and who it is booked for. The confirmation page shows the same QR code.
+- **Find my tickets** (`#tickets`, in the header and footer): a guest enters the email and phone
+  number they gave when paying and clicks **Send code**; a **6-digit code** is emailed to them;
+  entering it shows all their tickets with QR codes and venue details.
+  - The code works once, for 10 minutes; five wrong tries end it; a new code (at most one every
+    30 seconds) replaces the old one.
+  - The answer is the same whether or not there are bookings for those details, so the page
+    cannot be used to find out who has booked. Only a hash of the code is stored.
+  - There is no SMS service, so the code goes by email only.
+- Signed-in buyers find their tickets under **My bookings**, each with a **Ticket QR code** link.
 
 ### Using MySQL instead of H2
 
@@ -194,6 +227,9 @@ version added and how it was tested is in [CHANGELOG.md](CHANGELOG.md).
 | `DELETE` | `/api/holds/{id}` | Release a hold early |
 | `POST` | `/api/holds/{id}/confirm` | Turn a hold into a booking |
 | `GET` | `/api/bookings/{reference}` | Fetch a booking, e.g. `SL-7KQ2MX` |
+| `GET` | `/api/bookings/{reference}/qr` | The ticket's QR code as a PNG (it holds the reference) |
+| `POST` | `/api/tickets/code` | Find my tickets: email a 6-digit code to a guest's email (`{"email", "phone"}`); always `202` |
+| `POST` | `/api/tickets/lookup` | Find my tickets: the guest's tickets for `{"email", "phone", "code"}` |
 | `POST` | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Create an account (and sign in), sign in, sign out |
 | `POST` | `/api/auth/forgot-password`, `/api/auth/reset-password` | Email a reset link; set a new password with its token |
 | `GET`, `PUT` | `/api/account` | The signed-in buyer's profile; change name and phone |
@@ -205,7 +241,7 @@ Errors use RFC 9457 problem responses:
 
 | Status | When |
 |---|---|
-| `400` | Validation failed, too many seats, or the event has started |
+| `400` | Validation failed, too many seats, the event has started, or a wrong or expired ticket code |
 | `404` | Unknown venue, event, hold, seat or booking |
 | `409` | Seats already taken (`eventSeatIds` lists which), hold no longer active, or a concurrent update (retry) |
 | `410` | Confirming a hold after it expired |
@@ -312,25 +348,29 @@ Performance notes:
 ## Project layout
 
 ```
-src/main/resources/static/  Web client: index.html, app.js, payment.js, account.js, info.js, app.css
+src/main/resources/static/  Web client: index.html, app.js, payment.js, tickets.js, account.js, info.js, app.css;
+                            outbox.html and outbox.js (the demo outbox)
 src/main/java/com/seatlock
 ├── config/        Clock, OpenAPI, hold/queue/rate-limit settings, demo data seeder
 ├── controller/    REST endpoints
 ├── dto/           Request and response records
 ├── exception/     Domain exceptions and the HTTP error mapping
-├── model/         JPA entities: Venue, Section, Seat, Event, EventSeat, Hold, Booking, PurchaseRequest
+├── model/         JPA entities: Venue, Section, Seat, Event, EventSeat, Hold, Booking, PurchaseRequest,
+│                  Account, PasswordResetToken, TicketAccessCode
 ├── queue/         Artemis queue setup, retry/dead-letter policy, purchase consumer
-├── notification/  Account emails, sent after commit on a background thread
+├── notification/  Account and ticket emails (HTML with the QR code), sent after commit on a
+│                  background thread; the demo outbox
 ├── ratelimit/     Per-IP token bucket filter for checkout and sign-in endpoints
 ├── security/      Spring Security setup, session sign-in, CSRF rules
 ├── repository/    Spring Data repositories, including the locking queries
-└── service/       Business logic: holds, bookings, expiry, queued checkout
+└── service/       Business logic: holds, bookings, expiry, queued checkout, tickets and QR codes
 src/test/java/com/seatlock
 ├── controller/    MockMvc tests and an end-to-end HTTP flow
 ├── model/         Unit tests for entity rules
 ├── ratelimit/     Rate limiter tests with a controllable clock
+├── notification/  Demo outbox tests
 ├── service/       Integration tests, including race tests and the queued checkout
-└── support/       Test base class and a controllable clock
+└── support/       Test base class, a controllable clock, email and QR code readers
 docs/              API reference, architecture guide and test scenarios
 load-test/         Locust load test (500 virtual fans)
 ```
@@ -346,10 +386,12 @@ load-test/         Locust load test (500 virtual fans)
 | `seatlock.holds.sweeper-enabled` | `true` | Turn the background sweeper off (tests do this) |
 | `seatlock.rate-limit.enabled` | `true` | Per-IP rate limit on checkout (off in tests and load tests) |
 | `seatlock.rate-limit.requests-per-second` | `5` | Checkout requests allowed per second per IP, also the burst size |
-| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm`, `/api/auth/*` | Paths the limit applies to |
+| `seatlock.rate-limit.paths` | `/api/events/*/holds`, `/api/events/*/purchase-requests`, `/api/holds/*/confirm`, `/api/auth/*`, `/api/tickets/*` | Paths the limit applies to |
 | `seatlock.accounts.reset-token-ttl` | `PT30M` | How long a forgot-password link works |
 | `seatlock.accounts.base-url` | `http://localhost:8080` (env `SEATLOCK_BASE_URL`) | Address used for links in emails |
 | `seatlock.accounts.mail-from` | `SeatLock <no-reply@seatlock.local>` (env `SEATLOCK_MAIL_FROM`) | Sender of SeatLock emails |
+| `seatlock.accounts.time-zone` | the server's zone (env `SEATLOCK_TIME_ZONE`) | Time zone for concert times in emails, e.g. `Asia/Kolkata` |
+| `seatlock.mail.demo-outbox` | `false` (`true` in the `demo` profile) | Keep emails in the demo outbox when no mail server is set; local requests only |
 | `spring.mail.host`, `port`, `username`, `password` | none (env `SPRING_MAIL_*`) | SMTP server for emails; without a host, emails are skipped |
 | `server.servlet.session.timeout` | `2h` | How long a signed-in session lasts without activity |
 | `seatlock.queue.consumers` | `1-4` | Queue consumer threads (one event's requests are still processed one at a time) |

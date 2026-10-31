@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Demo outbox · SeatLock</title>
+    <link rel="stylesheet" href="app.css?v=0.9.0">
+</head>
+<body>
+<header class="topbar">
+    <a class="brand" href="/">
+        <span class="logo" aria-hidden="true">◆</span>
+        <span>SeatLock</span>
+    </a>
+    <nav class="links"><span class="muted">Demo outbox</span></nav>
+</header>
+
+<main class="page outbox">
+    <div class="outbox-head">
+        <div>
+            <h1>Demo outbox</h1>
+            <p class="muted">Emails SeatLock would have sent: booking tickets, ticket codes, password resets.
+                No mail server is set up, so the demo keeps them here instead (newest first, the last 50,
+                gone when the app stops). Only this computer can open this page.</p>
+        </div>
+        <button id="refresh" class="btn secondary small" type="button">Refresh</button>
+    </div>
+    <div class="outbox-layout">
+        <ul id="outbox-list" class="outbox-list" aria-label="Emails"></ul>
+        <section id="outbox-view" class="card outbox-view" aria-live="polite">
+            <p class="muted">Pick an email on the left.</p>
+        </section>
+    </div>
+</main>
+
+<script src="outbox.js?v=0.9.0"></script>
+</body>
+</html>
