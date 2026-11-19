@@ -15,7 +15,7 @@ as SHA-256 hashes, and SeatLock never asks for or stores card details.
 
 ## Tech stack
 
-- Java 17, Spring Boot 3.5 (Web, Data JPA, Validation)
+- Java 21, Spring Boot 3.5 (Web, Data JPA, Validation)
 - H2 (in-memory, MySQL mode) for development and tests; MySQL 8 for a real database
 - ActiveMQ Artemis (Spring JMS) for the queued checkout, embedded by default
 - Spring Security for accounts (session sign-in, BCrypt passwords, CSRF protection)
@@ -26,7 +26,7 @@ as SHA-256 hashes, and SeatLock never asks for or stores card details.
 - Plain HTML, CSS and JavaScript for the web client (no build step, served by Spring Boot)
 - JUnit 5, AssertJ, Mockito, MockMvc, GreenMail (in-memory SMTP server for tests)
 - Locust (Python) for load testing
-- Maven (via the included `./mvnw` wrapper, so no local Maven install is needed)
+- Maven, from the included `./mvnw` wrapper or an installed `mvn` 3.8+
 
 ## Getting started
 

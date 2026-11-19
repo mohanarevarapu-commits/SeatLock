@@ -6,7 +6,7 @@ API and docs/ARCHITECTURE.md for the concurrency design.
 
 ## Tech stack
 
-- Java 17
+- Java 21
 - Spring Boot 3.5 (Web, Data JPA, Validation, Security, Mail)
 - MySQL 8 as the real database (`mysql` profile, `docker compose up -d`); in-memory H2 in MySQL
   mode for local runs and tests
@@ -26,7 +26,7 @@ API and docs/ARCHITECTURE.md for the concurrency design.
   (all load-test traffic comes from one IP), then `locust --config load-test/locust.conf`
   (`pip install -r load-test/requirements.txt` first; 500 users for 2 minutes)
 
-Always use `./mvnw`; Maven is not installed globally. Tests use in-memory H2 and need no
+Prefer `./mvnw`; a system `mvn` 3.8 or newer works the same when the wrapper cannot download Maven (for example offline). Tests use in-memory H2 and need no
 external services.
 
 ## Architecture
